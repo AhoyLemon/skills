@@ -61,16 +61,18 @@ export interface SessionResult {
   transcriptPath: string;
 }
 
+export type CheckStatus = 'ok' | 'warn' | 'fail';
+
 export interface BackendCheck {
   name: string;
-  ok: boolean;
+  status: CheckStatus;
   detail: string;
   hint?: string;
 }
 
 export interface Backend {
   name: string;
-  preflight: () => Promise<BackendCheck[]>;
+  preflight: (repoRoot: string) => BackendCheck[];
   start: (spec: RoleSpec) => Promise<SessionResult>;
   resume: (spec: RoleSpec, sessionId: string, message: string) => Promise<SessionResult>;
   initProblems: (init: InitInfo | null, spec: RoleSpec) => string[];

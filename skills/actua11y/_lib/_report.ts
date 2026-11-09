@@ -279,3 +279,23 @@ export const validateReport = (input: unknown, context: ValidationContext): Vali
   criteria.sort((a, b) => order.indexOf(a.num) - order.indexOf(b.num));
   return { ok: true, report: { schema: FINDER_SCHEMA, used: { tools, pages }, criteria } };
 };
+
+// The same shape as the types above, as the finder's brief shows it.
+export const REPORT_SHAPE = `interface FinderReport {
+  schema: "${FINDER_SCHEMA}";
+  used: { tools: string[]; pages: string[] };
+  criteria: {
+    num: string;                 // "1.4.3", one entry per criterion in the table, no others
+    fails?: {                    // ❌ proven
+      file: string;              // relative to the repository root
+      line: number;
+      what: string;
+      whoItHurts: string;
+      behaviour: boolean;        // true if it only shows up by doing something
+      repro?: string[];          // exact steps, required when behaviour is true
+    }[];
+    checks?: { what: string; how: string; whyNotAMachine: string }[];   // 🕵️ for a person
+    evidence?: { did: string; saw: string }[];                          // ✅ a machine found no fail
+    na?: string;                 // one-line reason, and nothing else alongside it
+  }[];
+}`;
