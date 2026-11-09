@@ -1,0 +1,7 @@
+This repository uses two licenses, split by what a file is.
+
+Code is under the MIT License, in LICENSE-MIT. That covers TypeScript and JavaScript files, tests, CI workflows, scripts, and package and config files.
+
+Prose is under Creative Commons Attribution 4.0 International (CC BY 4.0), in LICENSE-CC-BY-4.0. That covers SKILL.md files, briefs, references, docs, READMEs, changelogs and other Markdown. Creative Commons advises against its licenses for software, so code stays MIT. CC BY keeps attribution on the method when someone adapts the prose.
+
+One file is neither. skills/actua11y/data/wcag22.json is derived from W3C's published WCAG 2.2 data (https://www.w3.org/WAI/WCAG22/wcag.json). Copyright © W3C® (MIT, ERCIM, Keio, Beihang). It is used under the W3C Document License (https://www.w3.org/copyright/document-license/), and its criterion numbers, titles and levels are unchanged. The file carries its own source, copyright and license fields.
