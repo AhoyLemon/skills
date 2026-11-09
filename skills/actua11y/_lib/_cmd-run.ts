@@ -1,17 +1,15 @@
-// Starts the finder: a fresh, read-only session with the brief filled from the shipped table, a scratch folder with the browser kit, and axe already run on every page.
-import { cpSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+// Starts the finder: a fresh, read-only session with the brief filled from the shipped table and a scratch folder holding the browser kit.
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { bold, dim, failLine, heading, hintLine, okLine, out, warnLine } from './_ansi.ts';
 import type { Options } from './_args.ts';
 import { addUsage, type Backend, type RoleSpec, type SessionResult, type Usage } from './_backend.ts';
-import { banner } from './_banner.ts';
 import { fillTemplate, readBrief } from './_brief.ts';
+import { banner } from './_copy.ts';
 import { axeTagsFor, criteriaAt, levelLabel, type Level } from './_criteria.ts';
 import { repoSlugFor } from './_cmd-checks.ts';
-import { execAsync } from './_exec.ts';
 import { currentBranch, headCommit, ignoredIn, treeChanges, treeState } from './_git.ts';
-import { discoverPages } from './_pages.ts';
 import { printChecks, runPreflight } from './_preflight.ts';
 import { formatUsage } from './_render.ts';
 import { extractReportJson, REPORT_SHAPE, tallyOf, validateReport, type ValidationResult } from './_report.ts';
@@ -30,7 +28,6 @@ interface BriefInput {
   baseUrl: string;
   pages: string[];
   scratch: string;
-  axeDir: string;
   browser: string;
   channel: string;
   spec: RoleSpec;
@@ -48,9 +45,8 @@ export const finderBrief = (input: BriefInput): string =>
     REPO_ROOT: input.repoRoot,
     SCOPE: input.scope.map((path) => `\`${path}\``).join(', '),
     BASE_URL: input.baseUrl,
-    PAGES: input.pages.map((page) => `\`${page}\``).join(', '),
+    PAGES: input.pages.length > 0 ? input.pages.map((page) => `\`${page}\``).join(', ') : 'not named, so find every page in scope yourself, starting from the base URL',
     SCRATCH: input.scratch,
-    AXE_DIR: input.axeDir,
     AXE_TAGS: axeTagsFor(input.level).join(','),
     BROWSER: input.browser,
     CHANNEL: input.channel,
@@ -88,7 +84,7 @@ export const cmdBrief = (options: Options): number => {
   const scratch = '<a fresh scratch folder per run>';
   const spec = finderSpec(options, root, null, '', []);
   spec.scratch = scratch;
-  out(finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl: options.url ?? '<served for the run>', pages: options.pages.length > 0 ? options.pages : ['<found by a short crawl at run time>'], scratch, axeDir: `${scratch}/axe`, browser: '<your installed Chrome or Edge>', channel: 'chrome', spec }));
+  out(finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl: options.url ?? '<served for the run>', pages: options.pages, scratch, browser: '<your installed Chrome or Edge>', channel: 'chrome', spec }));
   return 0;
 };
 
@@ -107,8 +103,6 @@ const reportFrom = (session: SessionResult): unknown => {
   }
   return undefined;
 };
-
-const pageFile = (page: string): string => (page.replace(/^\/+|\/+$/g, '').replace(/[^A-Za-z0-9._-]+/g, '_') || 'index');
 
 export const cmdRunFinder = async (options: Options, backend: Backend): Promise<number> => {
   if (options.subject !== 'finder') throw new Error('Only `run finder` exists in this version');
@@ -153,23 +147,15 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
       okLine(`serving ${options.serve} at ${server.url} for this run`);
     }
     const baseUrl = server?.url ?? options.url ?? '';
-    const pages = options.pages.length > 0 ? options.pages : await discoverPages(baseUrl);
-    okLine(`pages: ${pages.join(', ')}`);
-
-    const axeDir = join(scratch, 'axe');
-    mkdirSync(axeDir, { recursive: true });
+    const pages = options.pages;
+    okLine(pages.length > 0 ? `pages: ${pages.join(', ')}` : 'pages: not named, so the finder finds them');
     const tags = axeTagsFor(level);
-    for (const page of pages) {
-      const scan = await execAsync('node', [join(scratch, 'kit', 'scan.ts'), '--url', new URL(page, baseUrl).href, '--tags', tags.join(','), '--out', join(axeDir, `${pageFile(page)}.json`), '--channel', probe.channel], { cwd: scratch });
-      if (scan.code === 0) okLine(`axe: ${scan.stdout.trim()}`);
-      else warnLine(`axe couldn't scan ${page}: ${scan.stderr.trim().split('\n').at(-1) ?? ''}`);
-    }
 
     const before = treeState(root);
     const ignored = ignoredIn(root, ['.']);
     const spec = finderSpec(options, root, scratch, join(dir, 'transcript.jsonl'), ignored);
     const browser = `${probe.channel} ${probe.version} (headless)`;
-    spec.brief = finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl, pages, scratch, axeDir, browser, channel: probe.channel, spec });
+    spec.brief = finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl, pages, scratch, browser, channel: probe.channel, spec });
     writeFileSync(join(dir, 'brief.md'), spec.brief);
 
     const meta: RunMeta = {
@@ -215,7 +201,6 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
     }
 
     const strays = treeChanges(before, treeState(root));
-    if (existsSync(axeDir)) cpSync(axeDir, join(dir, 'axe'), { recursive: true });
     meta.finishedAt = new Date().toISOString();
     meta.finder = { sessionId: session.sessionId, attempts, usage, transcriptPath: spec.transcriptPath, errors, strays, valid: validation.ok };
     writeJson(join(dir, 'meta.json'), meta);

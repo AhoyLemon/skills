@@ -15,7 +15,6 @@ export interface RunFacts {
   commit: string;
   branch: string;
   baseUrl: string;
-  pages: string[];
   browser: { channel: string; version: string } | null;
   axe: { version: string; tags: string[] } | null;
   backend: string;

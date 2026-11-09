@@ -48,7 +48,6 @@ export const makeFacts = (level: Level = 'A'): RunFacts => ({
   commit: '0123456789abcdef0123456789abcdef01234567',
   branch: 'main',
   baseUrl: 'http://127.0.0.1:4173/',
-  pages: ['/'],
   browser: { channel: 'chrome', version: '157.0.0.0' },
   axe: { version: '4.14.0', tags: ['wcag2a', 'wcag21a'] },
   backend: 'Claude Code',

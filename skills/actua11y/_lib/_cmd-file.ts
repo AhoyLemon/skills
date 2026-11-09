@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { bold, failLine, heading, okLine, out } from './_ansi.ts';
 import type { Options } from './_args.ts';
 import { addUsage } from './_backend.ts';
-import { banner } from './_banner.ts';
+import { banner } from './_copy.ts';
 import { commentOn, createIssue, editIssueBody, ensureLabel, ghSignedIn, repoInfo } from './_gh.ts';
 import { slugText } from './_git.ts';
 import { formatUsage, renderAgentIssue, renderPersonIssue, renderRawComments, type RunFacts } from './_render.ts';
@@ -22,7 +22,6 @@ const factsFrom = (meta: RunMeta): RunFacts => {
     commit: meta.commit,
     branch: meta.branch,
     baseUrl: meta.baseUrl,
-    pages: meta.pages,
     browser: meta.browser,
     axe: meta.axe,
     backend: meta.backend,

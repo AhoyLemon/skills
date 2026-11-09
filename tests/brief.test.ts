@@ -25,12 +25,14 @@ const spec: RoleSpec = {
 };
 
 const brief = (level: 'A' | 'AA' | 'AAA'): string =>
-  finderBrief({ level, scope: ['.'], repoRoot: '/work/moth-club', baseUrl: 'http://127.0.0.1:4173/', pages: ['/', '/join.html'], scratch: '/tmp/actua11y-run-abc', axeDir: '/tmp/actua11y-run-abc/axe', browser: 'chrome 157 (headless)', channel: 'chrome', spec });
+  finderBrief({ level, scope: ['.'], repoRoot: '/work/moth-club', baseUrl: 'http://127.0.0.1:4173/', pages: ['/', '/join.html'], scratch: '/tmp/actua11y-run-abc', browser: 'chrome 157 (headless)', channel: 'chrome', spec });
 
 test('the finder brief leaves no placeholder unfilled', () => {
   assert.doesNotMatch(brief('AA'), /\{\{[A-Z0-9_]+\}\}/);
   assert.throws(() => fillTemplate('Hi {{NAME}} and {{OTHER}}', { NAME: 'x' }), /OTHER/);
   assert.ok(placeholdersIn(readBrief('finder')).includes('CRITERIA_TABLE'));
+  const unnamed = finderBrief({ level: 'A', scope: ['.'], repoRoot: '/work/moth-club', baseUrl: 'http://127.0.0.1:4173/', pages: [], scratch: '/tmp/actua11y-run-abc', browser: 'chrome 157 (headless)', channel: 'chrome', spec });
+  assert.match(unnamed, /find every page in scope yourself/);
 });
 
 test('the brief lists exactly the criteria at the target, with levels from the table', () => {

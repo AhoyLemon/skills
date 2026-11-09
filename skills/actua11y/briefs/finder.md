@@ -16,10 +16,9 @@ One rule runs through all of it: **a machine can prove a fail, and it can never 
 - **File tools** (Read, Glob, Grep) for the source.
 - **A shell,** for running Node scripts in your scratch folder, {{SCRATCH}}.
 - **A browser kit,** already installed in that scratch folder and driving {{BROWSER}}:
-  - `node {{SCRATCH}}/kit/scan.ts --url <url> --tags {{AXE_TAGS}} --out {{SCRATCH}}/<name>.json` runs axe on a page. Add `--viewport 390x844` for a phone, or `--wait <ms>` for pages that settle late.
-  - `node {{SCRATCH}}/kit/tabwalk.ts --url <url> --out {{SCRATCH}}/<name>.json` presses Tab through a page and records where focus lands, whether anything visibly changes, and whether it gets stuck. It takes `--viewport` too.
-  - `playwright-core` is installed there as well, so write your own scripts in the scratch folder for whatever the kit doesn't cover: opening dialogs, pressing Escape, zooming to 400%, reflowing at 320px, reading computed colours. Launch with `chromium.launch({ channel: '{{CHANNEL}}', headless: true })`.
-- **axe has already run** on every page, before you started. Its results are in {{AXE_DIR}}, one JSON file per page. Treat a violation as a lead to confirm in the source (and cite the source's file and line), `incomplete` as something axe couldn't decide, and a rule with no violations as evidence for that one rule on that one page, never for a whole criterion. axe covers only part of WCAG and skips its experimental rules (orientation lock among them), so most criteria need you.
+  - `node {{SCRATCH}}/kit/scan.ts --url <url> --tags {{AXE_TAGS}} --out {{SCRATCH}}/<name>.json` runs axe on a page with the tags for this level. Add `--viewport 390x844` for a phone, or `--wait <ms>` for pages that settle late. Run it on every page.
+  - `playwright-core` is installed there as well, so write your own scripts in the scratch folder for everything else: walking the Tab order, opening dialogs, pressing Escape, zooming to 400%, reflowing at 320px, reading computed colours. Launch with `chromium.launch({ channel: '{{CHANNEL}}', headless: true })`.
+- **Reading axe:** treat a violation as a lead to confirm in the source (and cite the source's file and line), `incomplete` as something axe couldn't decide, and a rule with no violations as evidence for that one rule on that one page, never for a whole criterion. axe covers only part of WCAG and skips its experimental rules (orientation lock among them), so most criteria need you.
 
 ## How to judge
 
@@ -58,7 +57,7 @@ The shape, as TypeScript for reference:
 {{REPORT_SCHEMA}}
 ```
 
-- `used.tools` lists every tool, script and check you used, for example "Read", "Grep", "kit/scan.ts", "kit/tabwalk.ts at 390x844", "own script: Escape on the menu dialog".
+- `used.tools` lists every tool, script and check you used, for example "Read", "Grep", "kit/scan.ts at 390x844", "own script: Tab order on /", "own script: Escape on the menu dialog".
 - `used.pages` lists every page you loaded.
 - Paths are relative to the repository root. Put quoted UI text in backticks.
 - Words you don't use anywhere in the report: pass, passes, passed, passing, compliant, conformant, conforms.

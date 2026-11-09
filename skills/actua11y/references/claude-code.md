@@ -52,7 +52,6 @@ Each run keeps a local record in `~/.local/state/actua11y/runs/<owner>__<repo>/<
 - `meta.json`
 - the filled `brief.md`
 - `transcript.jsonl`
-- the axe results
 - `report.json`
 - `filed.json`
 
