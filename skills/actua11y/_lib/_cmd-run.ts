@@ -9,7 +9,7 @@ import { banner } from './_banner.ts';
 import { fillTemplate, readBrief } from './_brief.ts';
 import { axeTagsFor, criteriaAt, levelLabel, type Level } from './_criteria.ts';
 import { repoSlugFor } from './_cmd-checks.ts';
-import { exec } from './_exec.ts';
+import { execAsync } from './_exec.ts';
 import { currentBranch, headCommit, ignoredIn, treeChanges, treeState } from './_git.ts';
 import { discoverPages } from './_pages.ts';
 import { printChecks, runPreflight } from './_preflight.ts';
@@ -160,7 +160,7 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
     mkdirSync(axeDir, { recursive: true });
     const tags = axeTagsFor(level);
     for (const page of pages) {
-      const scan = exec('node', [join(scratch, 'kit', 'scan.ts'), '--url', new URL(page, baseUrl).href, '--tags', tags.join(','), '--out', join(axeDir, `${pageFile(page)}.json`), '--channel', probe.channel], { cwd: scratch });
+      const scan = await execAsync('node', [join(scratch, 'kit', 'scan.ts'), '--url', new URL(page, baseUrl).href, '--tags', tags.join(','), '--out', join(axeDir, `${pageFile(page)}.json`), '--channel', probe.channel], { cwd: scratch });
       if (scan.code === 0) okLine(`axe: ${scan.stdout.trim()}`);
       else warnLine(`axe couldn't scan ${page}: ${scan.stderr.trim().split('\n').at(-1) ?? ''}`);
     }

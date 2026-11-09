@@ -1,5 +1,5 @@
 // Small wrappers for running git, gh, npm and node without a shell, so nothing in a path or title gets interpreted.
-import { spawnSync, type SpawnSyncOptions } from 'node:child_process';
+import { spawn, spawnSync, type SpawnSyncOptions } from 'node:child_process';
 
 export interface ExecResult {
   code: number;
@@ -20,3 +20,19 @@ export const execOrThrow = (command: string, args: string[], options: SpawnSyncO
 };
 
 export const onPath = (command: string): boolean => exec(command, ['--version']).code === 0;
+
+// The async twin, for anything that runs while the runner's own static server has to keep answering requests. A sync spawn would block the event loop and starve the server.
+export const execAsync = (command: string, args: string[], options: { cwd?: string } = {}): Promise<ExecResult> =>
+  new Promise((resolve) => {
+    const child = spawn(command, args, { cwd: options.cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdout += chunk.toString('utf8');
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderr += chunk.toString('utf8');
+    });
+    child.on('error', (error) => resolve({ code: 127, stdout, stderr: error.message }));
+    child.on('close', (code) => resolve({ code: code ?? 1, stdout, stderr }));
+  });

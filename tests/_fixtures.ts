@@ -44,7 +44,7 @@ export const makeFacts = (level: Level = 'A'): RunFacts => ({
   runId: '20261109-120000-abcd',
   level,
   scope: ['.'],
-  repo: { owner: 'example', name: 'moth-club' },
+  repo: { owner: 'AhoyLemon', name: 'skills' },
   commit: '0123456789abcdef0123456789abcdef01234567',
   branch: 'main',
   baseUrl: 'http://127.0.0.1:4173/',

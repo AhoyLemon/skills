@@ -18,8 +18,8 @@ const validReport = (level: Level): FinderReport => {
 const renderAll = (level: Level): string[] => {
   const report = validReport(level);
   const facts = makeFacts(level);
-  const agent = renderAgentIssue(report, facts, { personUrl: 'https://github.com/example/moth-club/issues/2' });
-  const person = renderPersonIssue(report, facts, { agentUrl: 'https://github.com/example/moth-club/issues/1' });
+  const agent = renderAgentIssue(report, facts, { personUrl: 'https://github.com/AhoyLemon/skills/issues/2' });
+  const person = renderPersonIssue(report, facts, { agentUrl: 'https://github.com/AhoyLemon/skills/issues/1' });
   return [agent.title, agent.body, agent.evidenceComment ?? '', person.title, person.body, ...renderRawComments(report, facts)];
 };
 
@@ -43,13 +43,13 @@ test('nothing actua11y renders says the target passes', () => {
 test('fails go to agents with code links, checks go to the person, evidence stays visible but collapsed', () => {
   const report = validReport('A');
   const facts = makeFacts('A');
-  const agent = renderAgentIssue(report, facts, { personUrl: 'https://github.com/example/moth-club/issues/2' });
-  const person = renderPersonIssue(report, facts, { agentUrl: 'https://github.com/example/moth-club/issues/1' });
-  assert.match(agent.body, /- \[ \] \[`index\.html:5`\]\(https:\/\/github\.com\/example\/moth-club\/blob\/0123456789abcdef0123456789abcdef01234567\/index\.html#L5\)/);
+  const agent = renderAgentIssue(report, facts, { personUrl: 'https://github.com/AhoyLemon/skills/issues/2' });
+  const person = renderPersonIssue(report, facts, { agentUrl: 'https://github.com/AhoyLemon/skills/issues/1' });
+  assert.match(agent.body, /- \[ \] \[`index\.html:5`\]\(https:\/\/github\.com\/AhoyLemon\/skills\/blob\/0123456789abcdef0123456789abcdef01234567\/index\.html#L5\)/);
   assert.match(agent.body, /1\. Load \//);
   assert.match(agent.body, /<details>\n<summary>✅ A machine found no fail in 1 criteria/);
-  assert.match(agent.body, /\[the person's issue\]\(https:\/\/github\.com\/example\/moth-club\/issues\/2\)/);
-  assert.match(person.body, /\[the agent issue\]\(https:\/\/github\.com\/example\/moth-club\/issues\/1\)/);
+  assert.match(agent.body, /\[the person's issue\]\(https:\/\/github\.com\/AhoyLemon\/skills\/issues\/2\)/);
+  assert.match(person.body, /\[the agent issue\]\(https:\/\/github\.com\/AhoyLemon\/skills\/issues\/1\)/);
   assert.match(person.body, /- \[ \] Whether the moth photo is decorative/);
   assert.match(person.body, /1\.1\.1 Non-text Content.*also has proven fails/);
   assert.match(person.body, /## What I found by using it/);

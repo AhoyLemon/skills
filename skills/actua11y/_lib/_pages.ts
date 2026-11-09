@@ -3,9 +3,13 @@ const ASSET = /\.(css|js|mjs|json|png|jpe?g|gif|webp|avif|svg|ico|pdf|zip|woff2?
 
 export const pathOf = (url: URL): string => `${url.pathname}${url.search}`;
 
+// "/" and "/index.html" are one page, so they share a key.
+const pageKey = (url: URL): string => `${url.pathname.replace(/\/index\.html?$/i, '/')}${url.search}`;
+
 export const discoverPages = async (baseUrl: string, max = 15): Promise<string[]> => {
   const base = new URL(baseUrl);
-  const seen = new Set<string>([pathOf(base)]);
+  const seen = new Set<string>([pageKey(base)]);
+  const pages: string[] = [pathOf(base)];
   const queue: { url: URL; depth: number }[] = [{ url: base, depth: 0 }];
   while (queue.length > 0 && seen.size < max) {
     const next = queue.shift();
@@ -26,11 +30,12 @@ export const discoverPages = async (baseUrl: string, max = 15): Promise<string[]
         continue;
       }
       if (link.origin !== base.origin || ASSET.test(link.pathname)) continue;
-      const path = pathOf(link);
-      if (seen.has(path) || seen.size >= max) continue;
-      seen.add(path);
+      const key = pageKey(link);
+      if (seen.has(key) || seen.size >= max) continue;
+      seen.add(key);
+      pages.push(pathOf(link));
       queue.push({ url: link, depth: next.depth + 1 });
     }
   }
-  return [...seen];
+  return pages;
 };

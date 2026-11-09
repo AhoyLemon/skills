@@ -49,8 +49,8 @@ export const cmdFile = (options: Options): number => {
   if (options.preview) {
     const preview = join(dir, 'preview');
     mkdirSync(preview, { recursive: true });
-    const agent = renderAgentIssue(report, facts, { personUrl: 'https://github.com/OWNER/REPO/issues/PERSON' });
-    const person = renderPersonIssue(report, facts, { agentUrl: 'https://github.com/OWNER/REPO/issues/AGENT' });
+    const agent = renderAgentIssue(report, facts, { personUrl: '#preview-person-issue' });
+    const person = renderPersonIssue(report, facts, { agentUrl: '#preview-agent-issue' });
     writeFileSync(join(preview, 'agent-issue.md'), `# ${agent.title}\n\n${agent.body}`);
     if (agent.evidenceComment) writeFileSync(join(preview, 'agent-issue-first-comment.md'), agent.evidenceComment);
     writeFileSync(join(preview, 'person-issue.md'), `# ${person.title}\n\n${person.body}`);
