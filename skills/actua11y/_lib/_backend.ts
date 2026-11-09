@@ -2,10 +2,6 @@
 
 export type Role = 'finder' | 'dry-run';
 
-export type Effort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
-
-export const EFFORTS: readonly Effort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
-
 // What a role may never do, named by intent so each backend can translate it into its own rules.
 export type DenyCategory = 'git' | 'github' | 'web' | 'subagents' | 'installs';
 
@@ -19,7 +15,7 @@ export interface RoleSpec {
   deny: DenyCategory[];
   offLimits: string[];
   model: string;
-  effort: Effort;
+  effort: string;
   maxTurns: number;
   maxBudgetUsd: number;
   timeoutMs: number;
@@ -72,6 +68,9 @@ export interface BackendCheck {
 
 export interface Backend {
   name: string;
+  // The agent's own model id and effort scale, so nothing outside the backend has to know them.
+  defaults: { model: string; effort: string };
+  efforts: readonly string[];
   preflight: (repoRoot: string) => BackendCheck[];
   start: (spec: RoleSpec) => Promise<SessionResult>;
   resume: (spec: RoleSpec, sessionId: string, message: string) => Promise<SessionResult>;

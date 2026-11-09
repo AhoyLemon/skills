@@ -36,7 +36,13 @@ export interface StaticServer {
 export const serveStatic = (folder: string): Promise<StaticServer> => {
   const root = resolve(folder);
   const server = createServer((request, response) => {
-    const path = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+    let path: string;
+    try {
+      path = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname);
+    } catch {
+      response.writeHead(400, { 'content-type': 'text/plain; charset=utf-8' }).end('Bad request');
+      return;
+    }
     let file = normalize(join(root, path));
     if (file !== root && !file.startsWith(root + sep)) {
       response.writeHead(403).end();
@@ -47,8 +53,15 @@ export const serveStatic = (folder: string): Promise<StaticServer> => {
       response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' }).end('Not found');
       return;
     }
-    response.writeHead(200, { 'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream', 'cache-control': 'no-store' });
-    createReadStream(file).pipe(response);
+    const stream = createReadStream(file);
+    stream.once('error', () => {
+      if (!response.headersSent) response.writeHead(500);
+      response.end();
+    });
+    stream.once('open', () => {
+      response.writeHead(200, { 'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream', 'cache-control': 'no-store' });
+      stream.pipe(response);
+    });
   });
   return new Promise((resolvePromise, reject) => {
     server.once('error', reject);

@@ -21,3 +21,36 @@ export const execOrThrow = (command: string, args: string[], options: SpawnSyncO
 
 export const onPath = (command: string): boolean => exec(command, ['--version']).code === 0;
 
+
+const cleanups = new Set<() => void>();
+let hooked = false;
+
+const runCleanups = (): void => {
+  for (const cleanup of cleanups) {
+    try {
+      cleanup();
+    } catch {
+      // Best effort: one failed cleanup shouldn't stop the others.
+    }
+  }
+  cleanups.clear();
+};
+
+// Registers a cleanup that runs however the process ends, Ctrl-C and kill included. Call the returned function to run it now, or with false to drop it unrun.
+export const onExit = (cleanup: () => void): ((run?: boolean) => void) => {
+  if (!hooked) {
+    hooked = true;
+    process.on('exit', runCleanups);
+    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+      process.on(signal, () => {
+        runCleanups();
+        process.exit(130);
+      });
+    }
+  }
+  cleanups.add(cleanup);
+  return (run = true) => {
+    if (!cleanups.delete(cleanup)) return;
+    if (run) cleanup();
+  };
+};

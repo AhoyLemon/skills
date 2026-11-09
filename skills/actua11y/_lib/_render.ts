@@ -25,13 +25,11 @@ export interface RunFacts {
   finishedAt: string;
 }
 
+// An issue plus the comments to post on it, in order, straight after it is created.
 export interface RenderedIssue {
   title: string;
   body: string;
-}
-
-export interface RenderedAgentIssue extends RenderedIssue {
-  evidenceComment: string | null;
+  comments: string[];
 }
 
 const ENTITIES: Record<string, string> = { '<': '&lt;', '@': '&#64;', '#': '&#35;' };
@@ -106,72 +104,119 @@ const failItem = (facts: RunFacts, fail: Fail): string => {
   return lines.join('\n');
 };
 
-const evidenceSection = (results: CriterionResult[]): string => {
-  const parts = results.map((result) => [`#### ${criterionHeading(result.num)}`, '', ...result.evidence.map((item) => `- **Did:** ${safeText(item.did)}\n  **Saw:** ${safeText(item.saw)}`)].join('\n'));
-  return [`<details>`, `<summary>✅ A machine found no fail in ${results.length} criteria. Here's what it did, so you can challenge it</summary>`, '', ...parts, '', '</details>'].join('\n');
+const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
+
+// Room in one comment for content, after its marker and heading.
+const COMMENT_ROOM = GITHUB_LIMIT - 500;
+
+// Packs list blocks into comment-sized chunks, keeping each block whole unless one is bigger than a comment by itself.
+export const chunkBlocks = (blocks: string[], room = COMMENT_ROOM): string[] => {
+  const chunks: string[] = [];
+  let current = '';
+  for (const block of blocks) {
+    const pieces: string[] = [];
+    for (let start = 0; start < block.length; start += room) pieces.push(block.slice(start, start + room));
+    for (const piece of pieces) {
+      if (current !== '' && current.length + piece.length + 2 > room) {
+        chunks.push(current);
+        current = '';
+      }
+      current = current === '' ? piece : `${current}\n\n${piece}`;
+    }
+  }
+  if (current !== '') chunks.push(current);
+  return chunks;
 };
+
+const continuations = (kind: string, facts: RunFacts, heading: string, chunks: string[]): string[] =>
+  chunks.map((chunk, i) => `${marker(kind, facts)}\n\n${heading}${chunks.length > 1 ? ` (part ${i + 1} of ${chunks.length})` : ''}\n\n${chunk}\n`);
+
+const evidenceBlocks = (results: CriterionResult[]): string[] =>
+  results.map((result) => [`#### ${criterionHeading(result.num)}`, '', ...result.evidence.map((item) => `- **Did:** ${safeText(item.did)}\n  **Saw:** ${safeText(item.saw)}`)].join('\n'));
+
+const wrapEvidence = (count: number, inner: string, part = ''): string =>
+  [`<details>`, `<summary>✅ A machine found no fail in ${plural(count, 'criterion', 'criteria')}${part}. Here's what it did, so you can challenge it</summary>`, '', inner, '', '</details>'].join('\n');
 
 const naSection = (results: CriterionResult[]): string =>
   results.length === 0 ? '' : ['## Not applicable', '', ...results.map((result) => `- ${criterionHeading(result.num)}: ${safeText(result.na ?? '')}`)].join('\n');
 
-export const renderAgentIssue = (report: FinderReport, facts: RunFacts, links: { personUrl: string | null }): RenderedAgentIssue => {
+const TOO_LONG = "because it won't fit in GitHub's 65,536-character limit for an issue body";
+
+// The agent issue's layout is decided once, against the longest plausible link to the person's issue, so cross-linking it afterwards can't change which parts live in comments.
+const LAYOUT_ISSUE_NUMBER = 9_999_999;
+
+export const renderAgentIssue = (report: FinderReport, facts: RunFacts, links: { personUrl: string | null }): RenderedIssue => {
   const tally = tallyOf(report);
   const failing = report.criteria.filter((result) => verdictOf(result) === 'fail');
   const clear = report.criteria.filter((result) => verdictOf(result) === 'found-no-fail');
   const na = report.criteria.filter((result) => verdictOf(result) === 'na');
-  const person = links.personUrl ? `[the person's issue](${links.personUrl})` : "the person's issue (being filed)";
+  const failBlocks = failing.map((result) => [`### ${criterionHeading(result.num)}`, '', ...result.fails.map((fail) => failItem(facts, fail))].join('\n'));
+  const evidence = evidenceBlocks(clear);
+  const intro = 'Each of these is proven, with the file and line, who it hurts and, for behaviour, exact repro steps. Fix for people, not for a checker, and prefer native HTML to ARIA.';
 
-  const failSection = failing.length === 0
-    ? '## ❌ For agents\n\nThe finder proved no fails. That is not a pass: see the person\'s issue for everything a machine couldn\'t settle.'
-    : ['## ❌ For agents', '', 'Each of these is proven, with the file and line, who it hurts and, for behaviour, exact repro steps. Fix for people, not for a checker, and prefer native HTML to ARIA.', '', ...failing.map((result) => [`### ${criterionHeading(result.num)}`, '', ...result.fails.map((fail) => failItem(facts, fail))].join('\n'))].join('\n\n');
+  const compose = (personUrl: string | null, failsInline: boolean, evidenceInline: boolean): string => {
+    const person = personUrl ? `[the person's issue](${personUrl})` : "the person's issue (being filed)";
+    const failSection = failing.length === 0
+      ? "## ❌ For agents\n\nThe finder proved no fails. That's not the same as finding nothing wrong: see the person's issue for everything a machine couldn't settle."
+      : ['## ❌ For agents', intro, ...(failsInline ? failBlocks : [`The list is in the comments below, ${TOO_LONG}.`])].join('\n\n');
+    const evidencePart = clear.length === 0 ? '' : evidenceInline ? wrapEvidence(clear.length, evidence.join('\n\n')) : `The ✅ list and its evidence are in the first comment, ${TOO_LONG}.`;
+    return [marker('agent-issue', facts), warningBlock(facts.level), '', `${targetLine(facts)} · ${person}`, '', '## Tally', '', tallyTable(report), '', failSection, '', usedSection(report, facts), '', naSection(na), '', evidencePart, ''].join('\n');
+  };
 
-  const head = [marker('agent-issue', facts), warningBlock(facts.level), '', `${targetLine(facts)} · ${person}`, '', '## Tally', '', tallyTable(report), '', failSection, '', usedSection(report, facts), '', naSection(na)].join('\n');
-  const evidence = clear.length > 0 ? evidenceSection(clear) : '';
-  const title = `actua11y: WCAG 2.2 ${facts.level}, for agents (${tally.failItems} fail${tally.failItems === 1 ? '' : 's'} in ${tally.fail} criteri${tally.fail === 1 ? 'on' : 'a'})`;
+  const layoutUrl = `https://github.com/${facts.repo.owner}/${facts.repo.name}/issues/${LAYOUT_ISSUE_NUMBER}`;
+  const layout = ([[true, true], [true, false], [false, false]] as const).find(([fails, ev]) => compose(layoutUrl, fails, ev).length <= GITHUB_LIMIT);
+  if (!layout) throw new Error("The agent issue won't fit GitHub's limit even with its lists moved into comments");
+  const [failsInline, evidenceInline] = layout;
 
-  const inline = `${head}\n\n${evidence}\n`;
-  if (inline.length <= GITHUB_LIMIT) return { title, body: inline, evidenceComment: null };
-  const body = `${head}\n\nThe ✅ list and its evidence are in the first comment, because this body would pass GitHub's 65,536-character limit.\n`;
-  if (body.length > GITHUB_LIMIT) throw new Error(`The agent issue is ${body.length} characters even without its evidence, past GitHub's limit`);
-  return { title, body, evidenceComment: `${marker('evidence', facts)}\n\n${evidence}\n` };
+  const comments: string[] = [];
+  if (clear.length > 0 && !evidenceInline) {
+    const chunks = chunkBlocks(evidence);
+    chunks.forEach((chunk, i) => comments.push(`${marker('evidence', facts)}\n\n${wrapEvidence(clear.length, chunk, chunks.length > 1 ? `, part ${i + 1} of ${chunks.length}` : '')}\n`));
+  }
+  if (!failsInline) comments.push(...continuations('fails', facts, '## ❌ For agents, continued', chunkBlocks(failBlocks)));
+  const title = `actua11y: WCAG 2.2 ${facts.level}, for agents (${plural(tally.failItems, 'fail', 'fails')} in ${plural(tally.fail, 'criterion', 'criteria')})`;
+  return { title, body: compose(links.personUrl, failsInline, evidenceInline), comments };
 };
 
 export const renderPersonIssue = (report: FinderReport, facts: RunFacts, links: { agentUrl: string }): RenderedIssue => {
   const tally = tallyOf(report);
   const withChecks = report.criteria.filter((result) => result.checks.length > 0);
-  const checkSection = withChecks.length === 0
-    ? '## 🕵️ To check\n\nThe finder left nothing for a person in its list. That is unusual, so use the site yourself before trusting it.'
-    : [
-        '## 🕵️ To check',
-        '',
-        "A machine couldn't settle these, so each says what to check, how, and why it needs you. Tick one once you've checked it yourself.",
-        '',
-        ...withChecks.map((result) =>
-          [
-            `### ${criterionHeading(result.num)}${verdictOf(result) === 'fail' ? ' (also has proven fails on the agent issue)' : ''}`,
-            '',
-            ...result.checks.map((check) => `- [ ] ${safeText(check.what)}\n  - **How:** ${safeText(check.how)}\n  - **Why a machine can't:** ${safeText(check.whyNotAMachine)}`),
-          ].join('\n'),
-        ),
-      ].join('\n\n');
+  const checkBlocks = withChecks.map((result) =>
+    [
+      `### ${criterionHeading(result.num)}${verdictOf(result) === 'fail' ? ' (also has proven fails on the agent issue)' : ''}`,
+      '',
+      ...result.checks.map((check) => `- [ ] ${safeText(check.what)}\n  - **How:** ${safeText(check.how)}\n  - **Why a machine can't:** ${safeText(check.whyNotAMachine)}`),
+    ].join('\n'),
+  );
+  const intro = "A machine couldn't settle these, so each says what to check, how, and why it needs you. Tick one once you've checked it yourself.";
 
-  const body = [
-    marker('person-issue', facts),
-    warningBlock(facts.level),
-    '',
-    `${targetLine(facts)} · [the agent issue](${links.agentUrl})`,
-    '',
-    checkSection,
-    '',
-    '## What I found by using it',
-    '',
-    '_Real devices, a screen reader, your own thumbs. Add what you find here, and say whether each one is a WCAG criterion (which one, and whether it is inside the target) or a UX problem._',
-    '',
-    usedSection(report, facts),
-    '',
-  ].join('\n');
-  if (body.length > GITHUB_LIMIT) throw new Error(`The person's issue is ${body.length} characters, past GitHub's limit`);
-  return { title: `actua11y: WCAG 2.2 ${facts.level}, for a person (${tally.checkItems} check${tally.checkItems === 1 ? '' : 's'})`, body };
+  const compose = (checksInline: boolean): string => {
+    const checkSection = withChecks.length === 0
+      ? "## 🕵️ To check\n\nThe finder left nothing for a person in its list. That's unusual, so use the site yourself before trusting it."
+      : ['## 🕵️ To check', intro, ...(checksInline ? checkBlocks : [`The checklist is in the comments below, ${TOO_LONG}. You can tick boxes there too.`])].join('\n\n');
+    return [
+      marker('person-issue', facts),
+      warningBlock(facts.level),
+      '',
+      `${targetLine(facts)} · [the agent issue](${links.agentUrl})`,
+      '',
+      checkSection,
+      '',
+      '## What I found by using it',
+      '',
+      '_Real devices, a screen reader, your own thumbs. Add what you find here, and say whether each one is a WCAG criterion (which one, and whether it is inside the target) or a UX problem._',
+      '',
+      usedSection(report, facts),
+      '',
+    ].join('\n');
+  };
+
+  const inline = compose(true);
+  const title = `actua11y: WCAG 2.2 ${facts.level}, for a person (${plural(tally.checkItems, 'check', 'checks')})`;
+  if (inline.length <= GITHUB_LIMIT) return { title, body: inline, comments: [] };
+  const body = compose(false);
+  if (body.length > GITHUB_LIMIT) throw new Error("The person's issue won't fit GitHub's limit even with its checklist moved into comments");
+  return { title, body, comments: continuations('checks', facts, '## 🕵️ To check, continued', chunkBlocks(checkBlocks)) };
 };
 
 // The raw report rides along, collapsed, so a later session can resume from GitHub alone and anyone can check the rendering.

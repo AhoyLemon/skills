@@ -10,7 +10,7 @@ import { makeFacts, makeReport, makeSite } from './_fixtures.ts';
 const repoRoot = makeSite();
 
 const validReport = (level: Level): FinderReport => {
-  const result = validateReport(makeReport(level), { criteria: criteriaAt(level), repoRoot });
+  const result = validateReport(makeReport(level), { criteria: criteriaAt(level), repoRoot, tracked: new Set(['index.html', 'css/site.css']) });
   if (!result.ok) throw new Error(result.errors.join('\n'));
   return result.report;
 };
@@ -20,23 +20,28 @@ const renderAll = (level: Level): string[] => {
   const facts = makeFacts(level);
   const agent = renderAgentIssue(report, facts, { personUrl: 'https://github.com/AhoyLemon/skills/issues/2' });
   const person = renderPersonIssue(report, facts, { agentUrl: 'https://github.com/AhoyLemon/skills/issues/1' });
-  return [agent.title, agent.body, agent.evidenceComment ?? '', person.title, person.body, ...renderRawComments(report, facts)];
+  return [agent.title, agent.body, ...agent.comments, person.title, person.body, ...person.comments, ...renderRawComments(report, facts)];
 };
 
-test('every rendered piece carries the best-faith line, and the AAA warning only at AAA', () => {
-  const [, agentBody, , , personBody] = renderAll('A');
-  for (const body of [agentBody, personBody]) {
-    assert.ok(body?.includes(BEST_FAITH));
-    assert.ok(!body?.includes(AAA_WARNING));
+const bodies = (level: Level): string[] => {
+  const report = validReport(level);
+  const facts = makeFacts(level);
+  return [renderAgentIssue(report, facts, { personUrl: null }).body, renderPersonIssue(report, facts, { agentUrl: 'https://github.com/AhoyLemon/skills/issues/1' }).body];
+};
+
+test('both issues carry the best-faith line, and the AAA warning only at AAA', () => {
+  for (const body of bodies('A')) {
+    assert.ok(body.includes(BEST_FAITH));
+    assert.ok(!body.includes(AAA_WARNING));
   }
-  const [, aaaAgent, , , aaaPerson] = renderAll('AAA');
-  for (const body of [aaaAgent, aaaPerson]) assert.ok(body?.includes(AAA_WARNING));
+  for (const body of bodies('AAA')) assert.ok(body.includes(AAA_WARNING));
 });
 
 test('nothing actua11y renders says the target passes', () => {
-  const claim = /\b(passes|passed|compliant|conformant|conforms|certified)\b/i;
+  // The rule itself ("it can never prove a pass") is the one place the word may appear.
+  const claim = /\b(pass|passes|passed|passing|compliant|conformant|conforms|certified)\b/i;
   for (const level of ['A', 'AA', 'AAA'] as const) {
-    for (const piece of renderAll(level)) assert.doesNotMatch(piece, claim);
+    for (const piece of renderAll(level)) assert.doesNotMatch(piece.split(BEST_FAITH).join(''), claim);
   }
 });
 
@@ -47,7 +52,7 @@ test('fails go to agents with code links, checks go to the person, evidence stay
   const person = renderPersonIssue(report, facts, { agentUrl: 'https://github.com/AhoyLemon/skills/issues/1' });
   assert.match(agent.body, /- \[ \] \[`index\.html:5`\]\(https:\/\/github\.com\/AhoyLemon\/skills\/blob\/0123456789abcdef0123456789abcdef01234567\/index\.html#L5\)/);
   assert.match(agent.body, /1\. Load \//);
-  assert.match(agent.body, /<details>\n<summary>✅ A machine found no fail in 1 criteria/);
+  assert.match(agent.body, /<details>\n<summary>✅ A machine found no fail in 1 criterion\./);
   assert.match(agent.body, /\[the person's issue\]\(https:\/\/github\.com\/AhoyLemon\/skills\/issues\/2\)/);
   assert.match(person.body, /\[the agent issue\]\(https:\/\/github\.com\/AhoyLemon\/skills\/issues\/1\)/);
   assert.match(person.body, /- \[ \] Whether the moth photo is decorative/);
@@ -65,8 +70,36 @@ test('the evidence moves to the first comment when the body would pass the limit
   target.evidence = Array.from({ length: 40 }, () => ({ did: filler, saw: filler }));
   const agent = renderAgentIssue(report, makeFacts('A'), { personUrl: null });
   assert.ok(agent.body.length <= GITHUB_LIMIT);
-  assert.ok(agent.evidenceComment?.includes('<details>'));
+  assert.ok(agent.comments.length >= 2, 'evidence this long spans more than one comment');
+  assert.ok(agent.comments.every((comment) => comment.length <= GITHUB_LIMIT && comment.includes('<details>')));
   assert.match(agent.body, /in the first comment/);
+});
+
+test('cross-linking later never changes which parts live in comments', () => {
+  const report = validReport('A');
+  const target = report.criteria.find((item) => item.num === '2.4.2');
+  if (!target) throw new Error('fixture lost 2.4.2');
+  // Pad the evidence until the body sits right at the limit, where a longer link could tip it over.
+  for (let size = 500; size < 70_000; size += 500) {
+    target.evidence = [{ did: 'x'.repeat(size), saw: 'y' }];
+    const first = renderAgentIssue(report, makeFacts('A'), { personUrl: null });
+    const linked = renderAgentIssue(report, makeFacts('A'), { personUrl: 'https://github.com/AhoyLemon/skills/issues/1234567' });
+    assert.deepEqual(linked.comments, first.comments, `size ${size}`);
+    assert.ok(linked.body.length <= GITHUB_LIMIT, `size ${size}`);
+  }
+});
+
+test("an oversized person's checklist moves into comments instead of failing", () => {
+  const report = validReport('A');
+  const target = report.criteria.find((item) => item.num === '1.3.1');
+  if (!target) throw new Error('fixture lost 1.3.1');
+  target.checks = Array.from({ length: 60 }, (_, i) => ({ what: `Check ${i} ${'w'.repeat(1500)}`, how: 'Look', whyNotAMachine: 'Judgement' }));
+  const person = renderPersonIssue(report, makeFacts('A'), { agentUrl: 'https://github.com/AhoyLemon/skills/issues/1' });
+  assert.ok(person.body.length <= GITHUB_LIMIT);
+  assert.match(person.body, /checklist is in the comments below/);
+  assert.ok(person.comments.length >= 2);
+  assert.ok(person.comments.every((comment) => comment.length <= GITHUB_LIMIT));
+  assert.equal(person.comments.join('').match(/- \[ \] Check /g)?.length, 60);
 });
 
 test('finder text cannot ping people, auto-link issues or inject HTML', () => {

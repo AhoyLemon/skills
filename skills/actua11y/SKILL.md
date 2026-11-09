@@ -46,7 +46,7 @@ Ask these together where you can, and keep it brisk.
 - **The running site.** A URL for a dev server that's already up (`--url`), or a folder for a static site, which the runner serves on localhost for the run (`--serve <folder>`). If the site needs a dev server and none is running, ask before starting one.
 - **Why a real browser.** Say it plainly: the finder drives the user's installed Chrome or Edge, headless, because keyboard behaviour, focus and rendered contrast only exist once a page is running. Some people don't want that by default, so they should hear why.
 - **Filing.** Say where it will file: two issues on this repository's GitHub, one for agents, and one for a person, assigned to them. Get their OK before the first real run.
-- **Cost.** The finder defaults to `claude-opus-5-5` at effort `high`, capped at 300 turns, $20 and 60 minutes. Say so, and pass `--model`, `--effort`, `--max-turns`, `--max-budget-usd` or `--timeout-minutes` if they want different.
+- **Cost.** `node <base>/runner.ts --help` prints the finder's default model and effort, and its caps: 300 turns, $20 and 60 minutes, shared across any correction rounds. Say them, and pass `--model`, `--effort`, `--max-turns`, `--max-budget-usd` or `--timeout-minutes` if the user wants different.
 
 ### 1. Preflight
 
@@ -61,7 +61,7 @@ It refuses on any ✗ and prints a fix for each:
 - a browser must actually launch
 - the site must answer
 
-Relay each ✗ and its fix, and don't start until it's clean. If a gitignored path genuinely belongs inside the scope, ask, then pass `--allow-ignored <path>`. The finder is barred from reading it. A `!` line is a warning to mention, not a blocker.
+Relay each ✗ and its fix, and don't start until it's clean. If a gitignored path genuinely belongs inside the scope, ask, then pass `--allow-ignored <path>`. The finder is barred from reading it. Do the same for a cache folder the site's dev server writes into the repository while it runs (`.next`, `.vite`, `.cache`), even if it doesn't exist yet. A `!` line is a warning to mention, not a blocker.
 
 ### 2. Dry run
 
@@ -80,6 +80,8 @@ This takes a while. Run it in the background if you can, and tell the user rough
 `node <base>/runner.ts file --run <run-id>`
 
 This files both issues, cross-links them and attaches the raw report. `--preview` writes the bodies locally instead, if the user wants to see them first. If filing stops partway, run the same command again, and it picks up where it stopped.
+
+It refuses a run that changed tracked or untracked files, and there's no way past that: the finder must never write to the app. If only new gitignored paths appeared, show them to the user. If they confirm each one came from their own dev server, pass `--allow-ignored <path>` for each to `file`.
 
 ### 5. Stop
 

@@ -12,6 +12,7 @@ export interface DryRunRecord {
   at: string;
   backend: string;
   model: string;
+  effort: string;
   clean: boolean;
   problems: string[];
   answer: string;
@@ -26,6 +27,7 @@ export interface FinderRecord {
   transcriptPath: string;
   errors: string[];
   strays: string[];
+  ignoredStrays: string[];
   valid: boolean;
 }
 
@@ -54,8 +56,9 @@ export interface RunMeta {
 
 export interface FiledRecord {
   agentUrl: string | null;
-  evidenceCommentUrl: string | null;
+  agentCommentUrls: string[];
   personUrl: string | null;
+  personCommentUrls: string[];
   agentLinked: boolean;
   rawCommentUrls: string[];
 }
@@ -100,4 +103,4 @@ export const latestDryRun = (repo: RepoSlug): DryRunRecord | null => {
   return latest ? readJson<DryRunRecord>(join(dir, latest)) : null;
 };
 
-export const emptyFiled = (): FiledRecord => ({ agentUrl: null, evidenceCommentUrl: null, personUrl: null, agentLinked: false, rawCommentUrls: [] });
+export const emptyFiled = (): FiledRecord => ({ agentUrl: null, agentCommentUrls: [], personUrl: null, personCommentUrls: [], agentLinked: false, rawCommentUrls: [] });

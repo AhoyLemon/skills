@@ -1,7 +1,7 @@
 // Command-line options for the runner, parsed with Node's own parser so the runner stays dependency-free.
 import { parseArgs } from 'node:util';
 
-import { EFFORTS, type Effort } from './_backend.ts';
+import type { Backend } from './_backend.ts';
 import { isLevel, type Level } from './_criteria.ts';
 
 export interface Options {
@@ -15,7 +15,7 @@ export interface Options {
   pages: string[];
   allowIgnored: string[];
   model: string;
-  effort: Effort;
+  effort: string;
   maxTurns: number;
   maxBudgetUsd: number;
   timeoutMinutes: number;
@@ -24,9 +24,8 @@ export interface Options {
   help: boolean;
 }
 
+// The model and effort defaults belong to the backend. These caps don't.
 export const DEFAULTS = {
-  model: 'claude-opus-5-5',
-  effort: 'high' as Effort,
   maxTurns: 300,
   maxBudgetUsd: 20,
   timeoutMinutes: 60,
@@ -39,7 +38,7 @@ const positiveNumber = (name: string, text: string | undefined, fallback: number
   return value;
 };
 
-export const parseOptions = (argv: string[]): Options => {
+export const parseOptions = (argv: string[], backend: Backend): Options => {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -63,8 +62,8 @@ export const parseOptions = (argv: string[]): Options => {
   });
   const level = values.level?.toUpperCase() ?? null;
   if (level !== null && !isLevel(level)) throw new Error(`--level must be A, AA or AAA, not "${values.level}"`);
-  const effort = values.effort ?? DEFAULTS.effort;
-  if (!(EFFORTS as readonly string[]).includes(effort)) throw new Error(`--effort must be one of ${EFFORTS.join(', ')}`);
+  const effort = values.effort ?? backend.defaults.effort;
+  if (!backend.efforts.includes(effort)) throw new Error(`--effort must be one of ${backend.efforts.join(', ')}`);
   if (values.url && values.serve) throw new Error('Pass --url or --serve, not both');
   return {
     command: positionals[0] ?? '',
@@ -76,8 +75,8 @@ export const parseOptions = (argv: string[]): Options => {
     serve: values.serve ?? null,
     pages: values.page ?? [],
     allowIgnored: (values['allow-ignored'] ?? []).map((path) => path.replace(/\/$/, '')),
-    model: values.model ?? DEFAULTS.model,
-    effort: effort as Effort,
+    model: values.model ?? backend.defaults.model,
+    effort,
     maxTurns: positiveNumber('max-turns', values['max-turns'], DEFAULTS.maxTurns),
     maxBudgetUsd: positiveNumber('max-budget-usd', values['max-budget-usd'], DEFAULTS.maxBudgetUsd),
     timeoutMinutes: positiveNumber('timeout-minutes', values['timeout-minutes'], DEFAULTS.timeoutMinutes),
@@ -87,13 +86,13 @@ export const parseOptions = (argv: string[]): Options => {
   };
 };
 
-export const USAGE = `actua11y runner
+export const usage = (backend: Backend): string => `actua11y runner
 
   node runner.ts preflight   --level AA [--scope <path>...] [--url <url> | --serve <dir>] [--allow-ignored <path>...]
   node runner.ts dry-run     [--model <id>] [--effort <level>]
   node runner.ts brief finder --level AA [--scope <path>...] [--url <url> | --serve <dir>] [--page <path>...]
   node runner.ts run finder  --level AA [--scope <path>...] (--url <url> | --serve <dir>) [--page <path>...] [--allow-ignored <path>...]
-                             [--model ${DEFAULTS.model}] [--effort ${DEFAULTS.effort}] [--max-turns ${DEFAULTS.maxTurns}] [--max-budget-usd ${DEFAULTS.maxBudgetUsd}] [--timeout-minutes ${DEFAULTS.timeoutMinutes}]
-  node runner.ts file        --run <run-id> [--preview]
+                             [--model ${backend.defaults.model}] [--effort ${backend.defaults.effort}] [--max-turns ${DEFAULTS.maxTurns}] [--max-budget-usd ${DEFAULTS.maxBudgetUsd}] [--timeout-minutes ${DEFAULTS.timeoutMinutes}]
+  node runner.ts file        --run <run-id> [--preview] [--allow-ignored <path>...]
 
 Run it from inside the repository you're auditing (or pass --cwd).`;

@@ -66,6 +66,6 @@ export const cmdDryRun = async (options: Options, backend: Backend): Promise<num
   hintLine('Compare that with what you expect: no instruction files, memory, skills, plugins, MCP servers or hooks, and nothing about the repository beyond its path. If it names anything else, stop.');
   out();
   out(`Cost: ${formatUsage(session.usage)}. Transcript: ${spec.transcriptPath}`);
-  saveDryRun(repo, { at, backend: backend.name, model: options.model, clean: problems.length === 0, problems, answer, usage: session.usage, transcriptPath: spec.transcriptPath });
+  saveDryRun(repo, { at, backend: backend.name, model: options.model, effort: options.effort, clean: problems.length === 0, problems, answer, usage: session.usage, transcriptPath: spec.transcriptPath });
   return problems.length === 0 ? 0 : 1;
 };

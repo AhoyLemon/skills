@@ -5,42 +5,10 @@ import { join } from 'node:path';
 
 import { exec } from './_exec.ts';
 
-// Pinned so every run drives the same axe rules. playwright-core never downloads a browser: it drives the Chrome or Edge already installed.
+// Pinned so every run drives the same axe rules. playwright-core never downloads a browser: it drives the Chrome or Edge already installed, or a Chromium installed for this exact Playwright version.
 export const KIT_PACKAGES = ['playwright-core@1.65.0', '@axe-core/playwright@4.14.0'];
 
 const KIT_SOURCE = join(import.meta.dirname, '..', 'kit');
-
-const cleanups = new Set<() => void>();
-let hooked = false;
-
-const runCleanups = (): void => {
-  for (const cleanup of cleanups) {
-    try {
-      cleanup();
-    } catch {
-      // Best effort: one failed cleanup shouldn't stop the others.
-    }
-  }
-  cleanups.clear();
-};
-
-export const onExit = (cleanup: () => void): (() => void) => {
-  if (!hooked) {
-    hooked = true;
-    process.on('exit', runCleanups);
-    for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
-      process.on(signal, () => {
-        runCleanups();
-        process.exit(130);
-      });
-    }
-  }
-  cleanups.add(cleanup);
-  return () => {
-    cleanups.delete(cleanup);
-    cleanup();
-  };
-};
 
 export const makeScratch = (label: string): string => realpathSync(mkdtempSync(join(tmpdir(), `actua11y-${label}-`)));
 

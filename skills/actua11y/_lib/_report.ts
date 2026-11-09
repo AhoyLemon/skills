@@ -52,6 +52,7 @@ export const VERDICT_MARK: Record<Verdict, string> = { fail: '❌', check: '🕵
 export interface ValidationContext {
   criteria: Criterion[];
   repoRoot: string;
+  tracked: Set<string>;
 }
 
 export type ValidationResult = { ok: true; report: FinderReport } | { ok: false; errors: string[] };
@@ -135,9 +136,9 @@ const checkKeys = (checker: Checker, where: string, value: Record<string, unknow
 
 const lineCount = (path: string): number => readFileSync(path, 'utf8').split('\n').length;
 
-const checkLocation = (checker: Checker, where: string, file: string, line: number, repoRoot: string): void => {
-  const absolute = resolve(repoRoot, file);
-  const inside = relative(repoRoot, absolute);
+const checkLocation = (checker: Checker, where: string, file: string, line: number, context: ValidationContext): void => {
+  const absolute = resolve(context.repoRoot, file);
+  const inside = relative(context.repoRoot, absolute);
   if (isAbsolute(file) || inside.startsWith('..')) {
     checker.errors.push(`${where}.file: "${file}" must be a path relative to the repository root`);
     return;
@@ -146,11 +147,16 @@ const checkLocation = (checker: Checker, where: string, file: string, line: numb
     checker.errors.push(`${where}.file: "${file}" doesn't exist in the repository`);
     return;
   }
+  // The issues link each fail to the audited commit, so a gitignored or generated file would be a dead link. Cite the tracked source instead.
+  if (!context.tracked.has(inside.split('\\').join('/'))) {
+    checker.errors.push(`${where}.file: "${file}" isn't tracked by git, so a link to it wouldn't resolve. Cite the tracked source file that produces it`);
+    return;
+  }
   const lines = lineCount(absolute);
   if (line > lines) checker.errors.push(`${where}.line: ${line} is past the end of ${file} (${lines} lines)`);
 };
 
-const checkFail = (checker: Checker, where: string, value: unknown, repoRoot: string): Fail | undefined => {
+const checkFail = (checker: Checker, where: string, value: unknown, context: ValidationContext): Fail | undefined => {
   if (!isRecord(value)) {
     checker.errors.push(`${where}: must be an object`);
     return undefined;
@@ -164,7 +170,7 @@ const checkFail = (checker: Checker, where: string, value: unknown, repoRoot: st
   if (typeof behaviour !== 'boolean') checker.errors.push(`${where}.behaviour: required (true when the fail only shows up by doing something)`);
   if (repro !== undefined && (!Array.isArray(repro) || !repro.every(nonEmpty))) checker.errors.push(`${where}.repro: must be a list of non-empty steps`);
   if (behaviour === true && (!Array.isArray(repro) || repro.length === 0)) checker.errors.push(`${where}.repro: required for a behaviour fail (exact steps a person can follow)`);
-  if (nonEmpty(file) && typeof line === 'number' && Number.isInteger(line) && line >= 1) checkLocation(checker, where, file, line, repoRoot);
+  if (nonEmpty(file) && typeof line === 'number' && Number.isInteger(line) && line >= 1) checkLocation(checker, where, file, line, context);
   for (const [key, text] of [['what', what], ['whoItHurts', whoItHurts]] as const) if (nonEmpty(text)) checker.strings(`${where}.${key}`, text);
   if (Array.isArray(repro)) repro.forEach((step, i) => nonEmpty(step) && checker.strings(`${where}.repro[${i}]`, step));
   if (!nonEmpty(file) || typeof line !== 'number' || !nonEmpty(what) || !nonEmpty(whoItHurts) || typeof behaviour !== 'boolean') return undefined;
@@ -207,10 +213,10 @@ const listOf = <T>(checker: Checker, where: string, value: unknown, each: (where
   return value.map((item, i) => each(`${where}[${i}]`, item)).filter((item): item is T => item !== undefined);
 };
 
-const checkCriterion = (checker: Checker, where: string, value: Record<string, unknown>, repoRoot: string): CriterionResult => {
+const checkCriterion = (checker: Checker, where: string, value: Record<string, unknown>, context: ValidationContext): CriterionResult => {
   checkKeys(checker, where, value, CRITERION_KEYS);
   const num = String(value['num']);
-  const fails = listOf(checker, `${where}.fails`, value['fails'], (w, item) => checkFail(checker, w, item, repoRoot));
+  const fails = listOf(checker, `${where}.fails`, value['fails'], (w, item) => checkFail(checker, w, item, context));
   const checks = listOf(checker, `${where}.checks`, value['checks'], (w, item) => checkCheck(checker, w, item));
   const evidence = listOf(checker, `${where}.evidence`, value['evidence'], (w, item) => checkEvidence(checker, w, item));
   const na = value['na'];
@@ -242,7 +248,8 @@ export const validateReport = (input: unknown, context: ValidationContext): Vali
     checkKeys(checker, 'report.used', used, USED_KEYS);
     if (!Array.isArray(used['tools']) || used['tools'].length === 0 || !used['tools'].every(nonEmpty)) checker.errors.push('report.used.tools: required (every tool, script and check you used)');
     else tools = used['tools'];
-    if (!Array.isArray(used['pages']) || !used['pages'].every(nonEmpty)) checker.errors.push('report.used.pages: required (every page you loaded)');
+    // A run that never loaded a page never drove the browser, so none of its behaviour evidence can stand.
+    if (!Array.isArray(used['pages']) || used['pages'].length === 0 || !used['pages'].every(nonEmpty)) checker.errors.push('report.used.pages: required (every page you loaded in the browser, at least one)');
     else pages = used['pages'];
   }
 
@@ -268,7 +275,7 @@ export const validateReport = (input: unknown, context: ValidationContext): Vali
         return;
       }
       seen.add(num);
-      criteria.push(checkCriterion(checker, where, item, context.repoRoot));
+      criteria.push(checkCriterion(checker, where, item, context));
     });
     const missing = [...expected.keys()].filter((num) => !seen.has(num));
     if (missing.length > 0) checker.errors.push(`report.criteria: missing ${missing.length} criteria at the target: ${missing.join(', ')}`);

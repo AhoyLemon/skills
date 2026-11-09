@@ -23,13 +23,14 @@ const finder = (): RoleSpec => ({
   transcriptPath: '/tmp/t.jsonl',
 });
 
-const parentEnv = { HOME: '/home/me', PATH: '/usr/bin', TERM: 'xterm', CLAUDECODE: '1', CLAUDE_CODE_EFFORT_LEVEL: 'max', ANTHROPIC_MODEL: 'fable', GITHUB_TOKEN: 'secret' };
+const parentEnv = { HOME: '/home/me', PATH: '/usr/bin', TERM: 'xterm', CLAUDECODE: '1', CLAUDE_CODE_EFFORT_LEVEL: 'max', ANTHROPIC_MODEL: 'fable', GITHUB_TOKEN: 'secret', ANTHROPIC_API_KEY: 'sk-test', HTTPS_PROXY: 'http://proxy:8080' };
 
 const valueAfter = (args: string[], flag: string): string | undefined => args[args.indexOf(flag) + 1];
 
 test('the environment is emptied down to the login and shell basics', () => {
   const { env } = buildInvocation(finder(), parentEnv);
-  assert.deepEqual(Object.keys(env).sort(), ['CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'CLAUDE_CODE_DISABLE_CLAUDE_MDS', 'CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS', 'HOME', 'PATH', 'TERM']);
+  assert.deepEqual(Object.keys(env).sort(), ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_DISABLE_AUTO_MEMORY', 'CLAUDE_CODE_DISABLE_CLAUDE_MDS', 'CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS', 'HOME', 'HTTPS_PROXY', 'PATH', 'TERM']);
+  assert.equal(env['ANTHROPIC_MODEL'], undefined, 'the model is pinned by flag, never inherited');
   assert.equal(env['CLAUDECODE'], undefined);
   assert.equal(env['CLAUDE_CODE_EFFORT_LEVEL'], undefined);
   assert.equal(env['GITHUB_TOKEN'], undefined);

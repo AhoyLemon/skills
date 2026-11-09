@@ -1,6 +1,6 @@
 // actua11y's runner: everything except starting a session is agent-neutral and lives here, and the orchestrator calls it instead of improvising. Run it with plain node 22.18+.
 import { err, red } from './_lib/_ansi.ts';
-import { parseOptions, USAGE } from './_lib/_args.ts';
+import { parseOptions, usage } from './_lib/_args.ts';
 import type { Backend } from './_lib/_backend.ts';
 import { cmdDryRun, cmdPreflight } from './_lib/_cmd-checks.ts';
 import { cmdFile } from './_lib/_cmd-file.ts';
@@ -15,9 +15,9 @@ const main = async (): Promise<number> => {
     err(`actua11y needs Node 22.18 or later to run TypeScript directly. This is ${process.version}.`);
     return 1;
   }
-  const options = parseOptions(process.argv.slice(2));
+  const options = parseOptions(process.argv.slice(2), backend);
   if (options.help || options.command === '') {
-    err(USAGE);
+    err(usage(backend));
     return options.help ? 0 : 1;
   }
   switch (options.command) {
@@ -32,7 +32,7 @@ const main = async (): Promise<number> => {
     case 'file':
       return cmdFile(options);
     default:
-      err(`Unknown command "${options.command}".\n\n${USAGE}`);
+      err(`Unknown command "${options.command}".\n\n${usage(backend)}`);
       return 1;
   }
 };

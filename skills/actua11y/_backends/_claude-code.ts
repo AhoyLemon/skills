@@ -4,7 +4,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 import type { Backend, BackendCheck, DenyCategory, InitInfo, RoleSpec, SessionResult } from '../_lib/_backend.ts';
-import { exec } from '../_lib/_exec.ts';
+import { exec, onExit } from '../_lib/_exec.ts';
 import { parseStream } from './_claude-stream.ts';
 
 export const BACKEND_NAME = 'Claude Code';
@@ -14,6 +14,28 @@ export const VERIFIED_VERSION = '2.1.319';
 
 // Enough for the subscription login, git and a shell. A shell inside an agent session carries dozens more (effort, entrypoint, a child-session flag), and any of them could change a run.
 export const ENV_KEEP = ['HOME', 'PATH', 'USER', 'LOGNAME', 'SHELL', 'TERM', 'LANG', 'TMPDIR'];
+
+// Sign-in and network settings pass through, so API-key, Bedrock, Vertex and proxied setups still reach the model. None of them change what the session knows or may do.
+export const ENV_PASS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+  'CLAUDE_CODE_USE_BEDROCK',
+  'CLAUDE_CODE_USE_VERTEX',
+  'AWS_REGION',
+  'AWS_PROFILE',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
+  'ANTHROPIC_VERTEX_PROJECT_ID',
+  'CLOUD_ML_REGION',
+  'GOOGLE_APPLICATION_CREDENTIALS',
+  'HTTPS_PROXY',
+  'HTTP_PROXY',
+  'NO_PROXY',
+  'NODE_EXTRA_CA_CERTS',
+];
 
 export const ENV_SET: Record<string, string> = {
   CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS: '1',
@@ -69,7 +91,7 @@ export const denyRulesFor = (spec: RoleSpec): string[] => {
 
 export const buildInvocation = (spec: RoleSpec, parentEnv: NodeJS.ProcessEnv, resume?: { sessionId: string; message: string }): Invocation => {
   const env: Record<string, string> = {};
-  for (const key of ENV_KEEP) {
+  for (const key of [...ENV_KEEP, ...ENV_PASS]) {
     const value = parentEnv[key];
     if (value !== undefined && value !== '') env[key] = value;
   }
@@ -124,6 +146,8 @@ const runInvocation = (invocation: Invocation, spec: RoleSpec): Promise<SessionR
       child.kill('SIGTERM');
       setTimeout(() => child.kill('SIGKILL'), 5000).unref();
     };
+    // If the runner itself is stopped, the session goes with it rather than running on unattended.
+    const release = onExit(() => child.kill('SIGKILL'));
     const timer = setTimeout(() => {
       timedOut = true;
       kill();
@@ -156,6 +180,7 @@ const runInvocation = (invocation: Invocation, spec: RoleSpec): Promise<SessionR
     child.on('error', (error) => aborts.push(`couldn't start claude: ${error.message}`));
     child.on('close', (code) => {
       clearTimeout(timer);
+      release(false);
       if (pending.trim() !== '') takeLine(pending);
       const summary = parseStream(lines);
       const errors = [...aborts, ...summary.errors];
@@ -199,6 +224,8 @@ const preflight = (repoRoot: string): BackendCheck[] => {
 
 export const claudeCode: Backend = {
   name: BACKEND_NAME,
+  defaults: { model: 'claude-opus-5-5', effort: 'high' },
+  efforts: ['low', 'medium', 'high', 'xhigh', 'max'],
   preflight,
   start: (spec) => runInvocation(buildInvocation(spec, process.env), spec),
   resume: (spec, sessionId, message) => runInvocation(buildInvocation(spec, process.env, { sessionId, message }), spec),

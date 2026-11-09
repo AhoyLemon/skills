@@ -46,6 +46,7 @@ test('the rules in the brief come from the same list the backend enforces', () =
   const text = brief('AA');
   assert.match(text, /No git commands at all/);
   assert.match(text, /No gh and no GitHub API/);
-  assert.match(text, /\/work\/answers\//);
+  assert.doesNotMatch(text, /\/work\/answers\//, 'the brief must not name the user\'s other folders');
+  assert.match(text, /Read nothing outside the repository and your scratch folder/);
   assert.match(text, /scratch folder is \/tmp\/actua11y-run-abc/);
 });

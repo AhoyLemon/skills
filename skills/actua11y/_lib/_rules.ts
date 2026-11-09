@@ -27,9 +27,14 @@ const real = (path: string): string => {
 export const computeOffLimits = (input: OffLimitsInput): string[] => {
   const paths = new Set<string>();
   // Directories end in a slash, so a backend can tell them apart without touching the disk again.
+  const scratch = input.scratch ? real(input.scratch) : null;
+  // Never bar the run from its own scratch folder, even when the temp directory sits next to the repository.
+  const holdsScratch = (path: string): boolean => scratch !== null && (scratch === path || scratch.startsWith(`${path}/`));
   const add = (path: string): void => {
     if (!existsSync(path)) return;
-    paths.add(statSync(path).isDirectory() ? `${real(path)}/` : real(path));
+    const resolved = real(path);
+    if (holdsScratch(resolved)) return;
+    paths.add(statSync(path).isDirectory() ? `${resolved}/` : resolved);
   };
   add(join(input.repoRoot, '.git'));
   for (const entry of input.ignoredInRepo) add(join(input.repoRoot, entry.replace(/\/$/, '')));
@@ -56,7 +61,8 @@ export const rulesInWords = (spec: RoleSpec): string[] => {
   if (spec.readOnly) rules.push(`Don't change, create or delete anything in the repository (${spec.cwd}). Your scratch folder is the only place you may write.`);
   for (const category of spec.deny) rules.push(DENY_WORDS[category]);
   if (spec.scratch) rules.push(`Your scratch folder is ${spec.scratch}, made fresh for this run and deleted afterwards. Other runs have used this machine, so don't open any other folder in the temp directory.`);
-  if (spec.offLimits.length > 0) rules.push(`These paths are off-limits, even to read:\n${spec.offLimits.map((path) => `  - ${path}`).join('\n')}`);
+  // The brief says this in general terms on purpose. Listing every blocked path would hand the session the names of the user's other projects.
+  if (spec.offLimits.length > 0) rules.push("Read nothing outside the repository and your scratch folder. The repository's .git folder and its gitignored files are off-limits too. Specific paths are blocked by rule, so if a read is denied, leave it alone and don't look for a way round it.");
   rules.push("Don't leave anything running in the background when you finish.");
   return rules;
 };

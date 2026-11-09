@@ -98,7 +98,7 @@ const browserCheck = (): { check: Check; probe: Probe | null } => {
     const kit = installKit(dir);
     if (!kit.ok) return { check: check('Browser', 'Browser kit', 'fail', `couldn't install ${kit.detail}`, 'The kit installs with npm into a temp folder. Check your network and npm.'), probe: null };
     const probe = probeBrowser(dir);
-    if (!probe.ok) return { check: check('Browser', 'A browser to drive', 'fail', probe.detail, 'Install Chrome or Edge. Only if neither is possible, run `npx playwright install chromium` once (it downloads a browser, so ask first).'), probe: null };
+    if (!probe.ok) return { check: check('Browser', 'A browser to drive', 'fail', probe.detail, 'Install Chrome or Edge. Only if neither is possible, and only with the user\'s OK (it downloads a browser), run `npx playwright@1.65.0 install chromium` once. actua11y uses that build when it finds no Chrome or Edge.'), probe: null };
     return { check: check('Browser', 'A browser to drive', 'ok', `${probe.channel} ${probe.version}, axe-core ${probe.axeVersion}`), probe };
   } finally {
     removeDir(dir);

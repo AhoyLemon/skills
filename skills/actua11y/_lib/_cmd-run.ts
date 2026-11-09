@@ -9,13 +9,14 @@ import { fillTemplate, readBrief } from './_brief.ts';
 import { banner } from './_copy.ts';
 import { axeTagsFor, criteriaAt, levelLabel, type Level } from './_criteria.ts';
 import { repoSlugFor } from './_cmd-checks.ts';
-import { currentBranch, headCommit, ignoredIn, treeChanges, treeState } from './_git.ts';
+import { currentBranch, headCommit, ignoredIn, trackedFiles, treeChanges, treeState } from './_git.ts';
 import { printChecks, runPreflight } from './_preflight.ts';
 import { formatUsage } from './_render.ts';
-import { extractReportJson, REPORT_SHAPE, tallyOf, validateReport, type ValidationResult } from './_report.ts';
+import { extractReportJson, REPORT_SHAPE, tallyOf, validateReport, type ValidationContext, type ValidationResult } from './_report.ts';
 import { ALL_DENIES, computeOffLimits, rulesInWords } from './_rules.ts';
 import { latestDryRun, newRunId, runDir, stateRoot, writeJson, type RunMeta } from './_runs.ts';
-import { installKit, makeScratch, onExit, probeBrowser, removeDir } from './_scratch.ts';
+import { onExit } from './_exec.ts';
+import { installKit, makeScratch, probeBrowser, removeDir } from './_scratch.ts';
 import { serveStatic, type StaticServer } from './_serve.ts';
 
 const DRY_RUN_MAX_AGE_MS = 6 * 60 * 60 * 1000;
@@ -96,12 +97,19 @@ const fixMessage = (errors: string[]): string =>
     errors.length > 80 ? `- ...and ${errors.length - 80} more like these` : '',
   ].join('\n');
 
-const reportFrom = (session: SessionResult): unknown => {
-  for (const text of [...session.finalTexts].reverse()) {
-    const parsed = extractReportJson(text);
-    if (typeof parsed === 'object' && parsed !== null) return parsed;
+interface Attempt {
+  validation: ValidationResult;
+  raw: unknown;
+}
+
+// The last result holding a valid report wins. If none is valid, the last JSON object is the one whose problems go back to the session.
+const reportFrom = (session: SessionResult, context: ValidationContext): Attempt => {
+  const candidates = [...session.finalTexts].reverse().map(extractReportJson).filter((parsed) => typeof parsed === 'object' && parsed !== null);
+  for (const raw of candidates) {
+    const validation = validateReport(raw, context);
+    if (validation.ok) return { validation, raw };
   }
-  return undefined;
+  return { validation: validateReport(candidates[0], context), raw: candidates[0] };
 };
 
 export const cmdRunFinder = async (options: Options, backend: Backend): Promise<number> => {
@@ -110,7 +118,7 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
   banner(level);
   if (!options.url && !options.serve) throw new Error('Pass --url <the running site> or --serve <folder> for a static site');
 
-  const pre = await runPreflight({ cwd: options.cwd, scope: options.scope, allowIgnored: options.allowIgnored, url: options.url, serve: options.serve, backend, github: false, browser: false });
+  const pre = await runPreflight({ cwd: options.cwd, scope: options.scope, allowIgnored: options.allowIgnored, url: options.url, serve: options.serve, backend, github: true, browser: false });
   if (!pre.ok || !pre.root) {
     printChecks(pre.checks.filter((check) => check.status !== 'ok'));
     out(bold('\nNot starting: the preflight failed.'));
@@ -120,9 +128,9 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
   const repo = repoSlugFor(root);
 
   const dry = latestDryRun(repo);
-  const fresh = dry && dry.clean && dry.backend === backend.name && dry.model === options.model && Date.now() - Date.parse(dry.at) < DRY_RUN_MAX_AGE_MS;
+  const fresh = dry && dry.clean && dry.backend === backend.name && dry.model === options.model && dry.effort === options.effort && Date.now() - Date.parse(dry.at) < DRY_RUN_MAX_AGE_MS;
   if (!fresh) {
-    failLine(`No clean dry run for ${repo.owner}/${repo.name} with ${options.model} in the last six hours.`);
+    failLine(`No clean dry run for ${repo.owner}/${repo.name} with ${options.model} at effort ${options.effort} in the last six hours.`);
     hintLine('Run `node runner.ts dry-run` first, and read what the session says it loaded.');
     return 1;
   }
@@ -184,35 +192,51 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
 
     heading('The finder');
     out(dim(`A fresh, read-only ${backend.name} session (${options.model}, effort ${options.effort}), capped at ${options.maxTurns} turns, $${options.maxBudgetUsd} and ${options.timeoutMinutes} minutes. This usually takes a while.`));
+    const context: ValidationContext = { criteria: criteriaAt(level), repoRoot: root, tracked: trackedFiles(root) };
+    const startedAt = Date.now();
     let session = await backend.start(spec);
     let usage: Usage = session.usage;
     let attempts = 1;
     const errors = [...session.errors];
-    let validation: ValidationResult = validateReport(reportFrom(session), { criteria: criteriaAt(level), repoRoot: root });
+    let attempt = reportFrom(session, context);
     const stoppedAtStart = session.errors.some((error) => error.startsWith('stopped at start'));
-    while (!validation.ok && !stoppedAtStart && session.sessionId && attempts < MAX_ATTEMPTS && usage.costUsd < options.maxBudgetUsd) {
-      warnLine(`the report has ${validation.errors.length} problem(s), so the runner is sending them back (attempt ${attempts + 1} of ${MAX_ATTEMPTS})`);
-      const remaining = { ...spec, maxBudgetUsd: Math.max(1, options.maxBudgetUsd - usage.costUsd), maxTurns: Math.max(10, options.maxTurns - usage.turns) };
-      session = await backend.resume(remaining, session.sessionId, fixMessage(validation.errors));
+    // Retries share the caps the user agreed to. Each one gets only what's left, and none starts without a useful amount left.
+    const left = (): { usd: number; turns: number; ms: number } => ({ usd: options.maxBudgetUsd - usage.costUsd, turns: options.maxTurns - usage.turns, ms: options.timeoutMinutes * 60_000 - (Date.now() - startedAt) });
+    while (!attempt.validation.ok && !stoppedAtStart && session.sessionId && attempts < MAX_ATTEMPTS) {
+      const remaining = left();
+      if (remaining.usd < 0.5 || remaining.turns < 5 || remaining.ms < 2 * 60_000) {
+        warnLine('the report has problems, but too little of the budget, turns or time is left to send them back');
+        break;
+      }
+      warnLine(`the report has ${attempt.validation.ok ? 0 : attempt.validation.errors.length} problem(s), so the runner is sending them back (attempt ${attempts + 1} of ${MAX_ATTEMPTS})`);
+      const retry = { ...spec, maxBudgetUsd: Number(remaining.usd.toFixed(2)), maxTurns: Math.floor(remaining.turns), timeoutMs: remaining.ms };
+      session = await backend.resume(retry, session.sessionId, fixMessage(attempt.validation.ok ? [] : attempt.validation.errors));
       usage = addUsage(usage, session.usage);
       errors.push(...session.errors);
       attempts += 1;
-      validation = validateReport(reportFrom(session), { criteria: criteriaAt(level), repoRoot: root });
+      attempt = reportFrom(session, context);
     }
+    const validation = attempt.validation;
 
-    const strays = treeChanges(before, treeState(root));
+    const changes = treeChanges(before, treeState(root), options.allowIgnored);
     meta.finishedAt = new Date().toISOString();
-    meta.finder = { sessionId: session.sessionId, attempts, usage, transcriptPath: spec.transcriptPath, errors, strays, valid: validation.ok };
+    meta.finder = { sessionId: session.sessionId, attempts, usage, transcriptPath: spec.transcriptPath, errors, strays: changes.tree, ignoredStrays: changes.ignored, valid: validation.ok };
     writeJson(join(dir, 'meta.json'), meta);
+    const strays = [...changes.tree, ...changes.ignored.map((path) => `new or gone gitignored path: ${path}`)];
 
     heading('Result');
     for (const error of errors) warnLine(error);
-    if (strays.length > 0) {
-      failLine('The finder changed the repository, which it must never do:');
-      for (const stray of strays) hintLine(stray);
+    if (changes.tree.length > 0) {
+      failLine('The finder changed tracked or untracked files in the repository, which it must never do:');
+      for (const stray of changes.tree) hintLine(stray);
+    }
+    if (changes.ignored.length > 0) {
+      failLine('Gitignored paths appeared or vanished while the finder ran:');
+      for (const path of changes.ignored) hintLine(path);
+      hintLine('If one came from your own dev server (a cache folder, say), file with --allow-ignored for it, and pass it at intake next time.');
     }
     if (!validation.ok) {
-      writeJson(join(dir, 'report-invalid.json'), { errors: validation.errors, raw: reportFrom(session) ?? session.finalTexts.at(-1) ?? null });
+      writeJson(join(dir, 'report-invalid.json'), { errors: validation.errors, raw: attempt.raw ?? session.finalTexts.at(-1) ?? null });
       failLine(`No usable report after ${attempts} attempt(s). Its problems are saved in ${join(dir, 'report-invalid.json')}.`);
       out(`Cost: ${formatUsage(usage)}`);
       return 1;

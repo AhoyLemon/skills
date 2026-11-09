@@ -12,6 +12,7 @@ export interface TreeState {
   head: string;
   branch: string;
   status: string[];
+  ignored: string[];
 }
 
 const git = (cwd: string, args: string[]): string => execOrThrow('git', args, { cwd });
@@ -25,36 +26,64 @@ export const headCommit = (root: string): string => git(root, ['rev-parse', 'HEA
 
 export const currentBranch = (root: string): string => git(root, ['rev-parse', '--abbrev-ref', 'HEAD']);
 
-export const porcelain = (root: string): string[] => git(root, ['status', '--porcelain']).split('\n').filter((line) => line !== '');
-
 const isNoise = (path: string): boolean => basename(path.replace(/\/$/, '')) === '.DS_Store';
 
-// Gitignored entries inside the given paths, collapsed to directories the way git reports them.
-export const ignoredIn = (root: string, paths: string[]): string[] =>
-  git(root, ['status', '--porcelain', '--ignored', '--', ...paths])
-    .split('\n')
-    .filter((line) => line.startsWith('!! '))
-    .map((line) => line.slice(3))
-    .filter((path) => !isNoise(path));
+// Porcelain with -z: NUL-separated and never quoted, so paths with spaces or non-ASCII characters survive. A rename or copy carries its source path as an extra field.
+const statusEntries = (root: string, args: string[]): string[] => {
+  const result = exec('git', ['status', '--porcelain', '-z', ...args], { cwd: root });
+  if (result.code !== 0) throw new Error(`git status failed: ${result.stderr.trim()}`);
+  const fields = result.stdout.split('\0');
+  const entries: string[] = [];
+  for (let i = 0; i < fields.length; i += 1) {
+    const field = fields[i] ?? '';
+    if (field === '') continue;
+    entries.push(field);
+    if (field.startsWith('R') || field.startsWith('C')) i += 1;
+  }
+  return entries.filter((entry) => !isNoise(entry.slice(3)));
+};
 
-// Everything git can see, ignored files included, for the before-and-after stray check.
+export const porcelain = (root: string): string[] => statusEntries(root, []);
+
+// Gitignored entries inside the given paths, with ignored folders collapsed to one line the way git reports them.
+export const ignoredIn = (root: string, paths: string[]): string[] =>
+  statusEntries(root, ['--ignored', '--untracked-files=normal', '--', ...paths])
+    .filter((entry) => entry.startsWith('!! '))
+    .map((entry) => entry.slice(3));
+
+export const trackedFiles = (root: string): Set<string> => new Set(git(root, ['ls-files', '-z']).split('\0').filter((path) => path !== ''));
+
+// Tracked and untracked files are listed in full. Ignored folders stay collapsed, so a dev server rewriting its cache inside one doesn't look like the finder changed the app.
 export const treeState = (root: string): TreeState => ({
   head: headCommit(root),
   branch: currentBranch(root),
-  status: git(root, ['status', '--porcelain', '--ignored', '--untracked-files=all'])
-    .split('\n')
-    .filter((line) => line !== '' && !isNoise(line.slice(3))),
+  status: statusEntries(root, ['--untracked-files=all']),
+  ignored: ignoredIn(root, ['.']),
 });
 
-export const treeChanges = (before: TreeState, after: TreeState): string[] => {
-  const changes: string[] = [];
-  if (before.head !== after.head) changes.push(`HEAD moved from ${before.head.slice(0, 12)} to ${after.head.slice(0, 12)}`);
-  if (before.branch !== after.branch) changes.push(`the branch changed from ${before.branch} to ${after.branch}`);
+const under = (path: string, allowed: string[]): boolean => {
+  const clean = path.replace(/\/$/, '');
+  return allowed.some((entry) => clean === entry || clean.startsWith(`${entry}/`));
+};
+
+export interface TreeChanges {
+  tree: string[];
+  ignored: string[];
+}
+
+// Changes to tracked or untracked files mean the run wrote to the app, which is never acceptable. New gitignored paths outside the acknowledged ones are reported separately, since a dev server can create those too.
+export const treeChanges = (before: TreeState, after: TreeState, allowedIgnored: string[] = []): TreeChanges => {
+  const tree: string[] = [];
+  if (before.head !== after.head) tree.push(`HEAD moved from ${before.head.slice(0, 12)} to ${after.head.slice(0, 12)}`);
+  if (before.branch !== after.branch) tree.push(`the branch changed from ${before.branch} to ${after.branch}`);
   const was = new Set(before.status);
-  for (const line of after.status) if (!was.has(line)) changes.push(`new or changed: ${line}`);
+  for (const line of after.status) if (!was.has(line)) tree.push(`new or changed: ${line}`);
   const now = new Set(after.status);
-  for (const line of before.status) if (!now.has(line)) changes.push(`gone or changed: ${line}`);
-  return changes;
+  for (const line of before.status) if (!now.has(line)) tree.push(`gone or changed: ${line}`);
+  const wasIgnored = new Set(before.ignored);
+  const nowIgnored = new Set(after.ignored);
+  const ignored = [...after.ignored.filter((path) => !wasIgnored.has(path)), ...before.ignored.filter((path) => !nowIgnored.has(path))].filter((path) => !under(path, allowedIgnored));
+  return { tree, ignored };
 };
 
 export interface UpstreamState {

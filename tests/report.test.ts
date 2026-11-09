@@ -6,7 +6,7 @@ import { extractReportJson, tallyOf, validateReport, verdictOf, type FinderRepor
 import { makeReport, makeSite } from './_fixtures.ts';
 
 const repoRoot = makeSite();
-const context = { criteria: criteriaAt('A'), repoRoot };
+const context = { criteria: criteriaAt('A'), repoRoot, tracked: new Set(['index.html', 'css/site.css']) };
 
 type Raw = Record<string, unknown> & { criteria: Record<string, unknown>[] };
 
@@ -85,6 +85,12 @@ test('each verdict owes what the spec says it owes', () => {
   assert.match(errorsFor(noHow).join('\n'), /checks\[0\]\.how: required/);
 });
 
+test('a report that never loaded a page is refused', () => {
+  const noPages = report();
+  noPages['used'] = { tools: ['Read'], pages: [] };
+  assert.match(errorsFor(noPages).join('\n'), /used\.pages: required/);
+});
+
 test('file:line has to exist on disk', () => {
   const ghost = report();
   const fail = (entry(ghost, '1.1.1')['fails'] as Record<string, unknown>[])[0] ?? {};
@@ -100,6 +106,10 @@ test('file:line has to exist on disk', () => {
   const outside = (entry(escape, '1.1.1')['fails'] as Record<string, unknown>[])[0] ?? {};
   outside['file'] = '../../etc/hosts';
   assert.match(errorsFor(escape).join('\n'), /relative to the repository root/);
+
+  const untracked = validateReport(report(), { ...context, tracked: new Set(['css/site.css']) });
+  assert.ok(!untracked.ok);
+  assert.match(untracked.ok ? '' : untracked.errors.join('\n'), /index\.html" isn't tracked by git/);
 });
 
 test('no claims of a pass or compliance, except quoted UI text in backticks', () => {

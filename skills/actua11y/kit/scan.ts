@@ -25,6 +25,7 @@ interface TrimmedRule {
   help: string;
   helpUrl: string;
   tags: string[];
+  nodeCount: number;
   nodes: TrimmedNode[];
 }
 
@@ -42,8 +43,9 @@ const { values } = parseArgs({
 
 const axeVersion = (): string => (createRequire(import.meta.url)('axe-core/package.json') as { version: string }).version;
 
+// The installed Chrome or Edge first. 'chromium' is Playwright's own build, there only if someone ran `npx playwright@1.65.0 install chromium`.
 const launch = async (wanted: string): Promise<Launched> => {
-  const channels = wanted === 'auto' ? ['chrome', 'msedge'] : [wanted];
+  const channels = wanted === 'auto' ? ['chrome', 'msedge', 'chromium'] : [wanted];
   const failures: string[] = [];
   for (const channel of channels) {
     try {
@@ -52,7 +54,7 @@ const launch = async (wanted: string): Promise<Launched> => {
       failures.push(`${channel}: ${error instanceof Error ? error.message.split('\n')[0] : String(error)}`);
     }
   }
-  throw new Error(`No Chrome or Edge to drive. ${failures.join(' | ')}`);
+  throw new Error(`No Chrome, Edge or Playwright Chromium to drive. ${failures.join(' | ')}`);
 };
 
 const viewportOf = (text: string): { width: number; height: number } => {
@@ -66,6 +68,7 @@ const trimRule = (rule: { id: string; impact?: string | null; help: string; help
   help: rule.help,
   helpUrl: rule.helpUrl,
   tags: rule.tags,
+  nodeCount: rule.nodes.length,
   nodes: rule.nodes.slice(0, 25).map((node) => ({ target: JSON.stringify(node.target), html: node.html.slice(0, 300), summary: (node.failureSummary ?? '').slice(0, 500) })),
 });
 
@@ -96,7 +99,7 @@ const main = async (): Promise<void> => {
       browser: { channel, version: browser.version() },
       axe: { version: axeVersion(), tags },
       viewport,
-      note: 'axe covers part of WCAG. A violation is a lead to verify in the source. Incomplete means axe could not decide. A rule with no violations covers that one rule on this page, never a whole criterion.',
+      note: 'axe covers part of WCAG. Each rule lists at most 25 of its nodeCount nodes. A violation is a lead to verify in the source. Incomplete means axe could not decide. A rule with no violations covers that one rule on this page, never a whole criterion.',
       violations: results.violations.map(trimRule),
       incomplete: results.incomplete.map(trimRule),
       passes: results.passes.map((rule) => ({ id: rule.id, help: rule.help, tags: rule.tags, nodeCount: rule.nodes.length })),
