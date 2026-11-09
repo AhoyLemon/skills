@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
@@ -9,12 +8,13 @@ import type { Backend } from '../skills/actua11y/_lib/_backend.ts';
 import { treeChanges, treeState } from '../skills/actua11y/_lib/_git.ts';
 import { nodeIsNewEnough, runPreflight } from '../skills/actua11y/_lib/_preflight.ts';
 import { computeOffLimits } from '../skills/actua11y/_lib/_rules.ts';
+import { tempDir } from './_fixtures.ts';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
 
 // A throwaway repo with a bare local remote, committed and pushed, so the preflight sees a clean tree that matches its upstream.
 const makeRepo = (): { parent: string; root: string } => {
-  const parent = realpathSync(mkdtempSync(join(tmpdir(), 'actua11y-test-repo-')));
+  const parent = tempDir('repo');
   const remote = join(parent, 'remote.git');
   const root = join(parent, 'moth-club');
   git(parent, 'init', '-q', '--bare', remote);

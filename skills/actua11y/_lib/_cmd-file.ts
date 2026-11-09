@@ -9,7 +9,7 @@ import { banner } from './_copy.ts';
 import { fileIssues, type GhClient } from './_filing.ts';
 import { commentOn, createIssue, editIssueBody, ensureLabel, ghSignedIn, repoInfo } from './_gh.ts';
 import { slugText } from './_git.ts';
-import { formatUsage, renderAgentIssue, renderPersonIssue, renderRawComments, type RunFacts } from './_render.ts';
+import { formatUsage, plural, renderAgentIssue, renderPersonIssue, renderRawComments, type RunFacts } from './_render.ts';
 import { tallyOf, type FinderReport } from './_report.ts';
 import { emptyFiled, findRunDir, readJson, writeJson, type FiledRecord, type RunMeta } from './_runs.ts';
 
@@ -86,8 +86,8 @@ export const cmdFile = (options: Options): number => {
   const tally = tallyOf(report);
   const total = meta.dryRun ? addUsage(meta.finder.usage, meta.dryRun.usage) : meta.finder.usage;
   heading('Assess-only: done');
-  out(`  For agents: ${filed.agentUrl} (${tally.failItems} fail(s) in ${tally.fail} criteria)`);
-  out(`  For you:    ${filed.personUrl} (${tally.checkItems} check(s))`);
+  out(`  For agents: ${filed.agentUrl} (${plural(tally.failItems, 'fail', 'fails')} in ${plural(tally.fail, 'criterion', 'criteria')})`);
+  out(`  For you:    ${filed.personUrl} (${plural(tally.checkItems, 'check', 'checks')})`);
   out(`  Cost, dry run and finder together: ${formatUsage(total)}`);
   out();
   out(bold("That's the whole assess-only run. None of it is a certificate: the person's issue is the part only you can do."));

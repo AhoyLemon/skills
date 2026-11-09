@@ -74,6 +74,8 @@ bun run check:links
 
 CI runs all three on every PR, on Node 22.18.0 and the current LTS.
 
+One test drives a real browser through actua11y's kit. It skips on a machine with no Chrome, Edge or Playwright Chromium, and fails in CI, where Chrome is always installed.
+
 ## Licenses
 
 Code is MIT (`LICENSE-MIT`). Prose is CC BY 4.0 (`LICENSE-CC-BY-4.0`). `LICENSE` says which covers what. New files follow the same split.

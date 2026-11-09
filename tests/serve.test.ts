@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { request } from 'node:http';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { serveStatic } from '../skills/actua11y/_lib/_serve.ts';
+import { tempDir } from './_fixtures.ts';
 
 // A raw request, because fetch and URL would tidy up the path before it ever reached the server.
 const rawStatus = (base: string, path: string): Promise<number> =>
@@ -20,7 +20,7 @@ const rawStatus = (base: string, path: string): Promise<number> =>
   });
 
 test('the static server serves its folder, refuses to leave it, and survives a malformed path', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'actua11y-test-serve-'));
+  const root = tempDir('serve');
   writeFileSync(join(root, 'index.html'), '<h1>Moth Club</h1>');
   const server = await serveStatic(root);
   try {

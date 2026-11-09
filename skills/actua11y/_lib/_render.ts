@@ -84,6 +84,8 @@ const usedSection = (report: FinderReport, facts: RunFacts): string => {
 
 const verdictKey = (): string => VERDICT_KEY.map(({ mark, means }) => `${mark} ${means}`).join(' · ');
 
+export const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
+
 const tallyTable = (report: FinderReport): string => {
   const tally = tallyOf(report);
   return [
@@ -91,7 +93,7 @@ const tallyTable = (report: FinderReport): string => {
     '|---|---|---|---|',
     `| ${tally.fail} | ${tally.check} | ${tally['found-no-fail']} | ${tally.na} |`,
     '',
-    `Counts are criteria. ${tally.failItems} fail(s) for agents, ${tally.checkItems} check(s) for a person. ${verdictKey()}.`,
+    `Counts are criteria. ${plural(tally.failItems, 'fail', 'fails')} for agents, ${plural(tally.checkItems, 'check', 'checks')} for a person. ${verdictKey()}.`,
   ].join('\n');
 };
 
@@ -103,8 +105,6 @@ const failItem = (facts: RunFacts, fail: Fail): string => {
   }
   return lines.join('\n');
 };
-
-const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
 
 // Room in one comment for content, after its marker and heading.
 const COMMENT_ROOM = GITHUB_LIMIT - 500;

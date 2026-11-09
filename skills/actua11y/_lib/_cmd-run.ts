@@ -11,7 +11,7 @@ import { axeTagsFor, criteriaAt, levelLabel, type Level } from './_criteria.ts';
 import { repoSlugFor } from './_cmd-checks.ts';
 import { currentBranch, headCommit, ignoredIn, trackedFiles, treeChanges, treeState } from './_git.ts';
 import { printChecks, runPreflight } from './_preflight.ts';
-import { formatUsage } from './_render.ts';
+import { formatUsage, plural } from './_render.ts';
 import { extractReportJson, REPORT_SHAPE, tallyOf, validateReport, type ValidationContext, type ValidationResult } from './_report.ts';
 import { ALL_DENIES, computeOffLimits, rulesInWords } from './_rules.ts';
 import { latestDryRun, newRunId, runDir, stateRoot, writeJson, type RunMeta } from './_runs.ts';
@@ -244,7 +244,7 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
     writeJson(join(dir, 'report.json'), validation.report);
     const tally = tallyOf(validation.report);
     okLine(`a verdict for all ${validation.report.criteria.length} criteria: ❌ ${tally.fail}, 🕵️ ${tally.check}, ✅ ${tally['found-no-fail']}, n/a ${tally.na}`);
-    out(`  ${tally.failItems} fail(s) for agents, ${tally.checkItems} check(s) for a person`);
+    out(`  ${plural(tally.failItems, 'fail', 'fails')} for agents, ${plural(tally.checkItems, 'check', 'checks')} for a person`);
     out(`  Cost: ${formatUsage(usage)}${attempts > 1 ? ` over ${attempts} attempts` : ''}`);
     out(`  Run: ${runId}  (local record in ${dir})`);
     out();

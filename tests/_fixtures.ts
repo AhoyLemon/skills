@@ -1,15 +1,29 @@
 // Synthetic fixtures for the tests: a made-up two-file site and a report about it. Never derived from any real or seeded app.
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { after } from 'node:test';
 
 import { emptyUsage } from '../skills/actua11y/_lib/_backend.ts';
 import { criteriaAt, type Level } from '../skills/actua11y/_lib/_criteria.ts';
 import type { RunFacts } from '../skills/actua11y/_lib/_render.ts';
 import { FINDER_SCHEMA } from '../skills/actua11y/_lib/_report.ts';
 
+const made: string[] = [];
+
+// Each test file removes its temp folders when it finishes, so none pile up for the runner's off-limits list to name.
+after(() => {
+  for (const dir of made) rmSync(dir, { recursive: true, force: true });
+});
+
+export const tempDir = (label: string): string => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), `actua11y-test-${label}-`)));
+  made.push(dir);
+  return dir;
+};
+
 export const makeSite = (): string => {
-  const root = mkdtempSync(join(tmpdir(), 'actua11y-test-site-'));
+  const root = tempDir('site');
   mkdirSync(join(root, 'css'));
   writeFileSync(join(root, 'index.html'), ['<!doctype html>', '<html>', '<head><title>Moth Club</title></head>', '<body>', '<img src="moth.png">', '<div onclick="go()">Join</div>', '</body>', '</html>'].join('\n'));
   writeFileSync(join(root, 'css', 'site.css'), ['body { color: #777; }', 'a:focus { outline: none; }'].join('\n'));

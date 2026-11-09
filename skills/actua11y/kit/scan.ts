@@ -81,7 +81,9 @@ const main = async (): Promise<void> => {
     }
     if (!values.url || !values.out) throw new Error('Pass --url and --out, or --probe');
     const viewport = viewportOf(values.viewport);
-    const page = await browser.newPage({ viewport });
+    // axe's Playwright wrapper refuses a page from browser.newPage(), so the page gets a context of its own.
+    const context = await browser.newContext({ viewport });
+    const page = await context.newPage();
     try {
       await page.goto(values.url, { waitUntil: 'networkidle', timeout: 30_000 });
     } catch {
