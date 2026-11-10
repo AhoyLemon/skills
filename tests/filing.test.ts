@@ -43,7 +43,7 @@ const fakeGh = (failOn = -1): FakeGh => {
   };
 };
 
-const file = (gh: GhClient, filed: FiledRecord): void => fileIssues({ report: report(), facts: makeFacts('A'), slug: 'AhoyLemon/skills', filed, gh, save: () => undefined, progress: () => undefined });
+const file = (gh: GhClient, filed: FiledRecord): void => fileIssues({ report: report(), facts: makeFacts('A'), site: { url: null, serve: 'site' }, slug: 'AhoyLemon/skills', filed, gh, save: () => undefined, progress: () => undefined });
 
 test('filing creates the agent issue, then the person\'s, cross-links them, then attaches the raw report', () => {
   const gh = fakeGh();
@@ -66,7 +66,7 @@ const bigReport = (): FinderReport => {
   return result.report;
 };
 
-const fileWith = (big: FinderReport, gh: GhClient, filed: FiledRecord): void => fileIssues({ report: big, facts: makeFacts('A'), slug: 'AhoyLemon/skills', filed, gh, save: () => undefined, progress: () => undefined });
+const fileWith = (big: FinderReport, gh: GhClient, filed: FiledRecord): void => fileIssues({ report: big, facts: makeFacts('A'), site: { url: null, serve: 'site' }, slug: 'AhoyLemon/skills', filed, gh, save: () => undefined, progress: () => undefined });
 
 test('a rerun that stopped partway through the agent issue\'s comments posts only the ones still missing', () => {
   const big = bigReport();

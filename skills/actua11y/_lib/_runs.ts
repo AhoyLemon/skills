@@ -23,7 +23,8 @@ export interface DryRunRecord {
   transcriptPath: string;
 }
 
-export interface FinderRecord {
+// What the runner saw of one role's session: its cost, what the fences caught, and whether its report held up.
+export interface SessionRecord {
   sessionId: string;
   attempts: number;
   usage: Usage;
@@ -37,8 +38,30 @@ export interface FinderRecord {
   reportSha256: string | null;
 }
 
+export type RunRole = 'finder' | 'certifier';
+
+// A carried repro: steps a certifier ❌ (or a finder's behaviour fail) gave, which the next pass has to run again exactly.
+export interface CarriedRef {
+  id: string;
+  from: number;
+  steps: string[];
+}
+
+// What a certifier pass was asked to judge, frozen when it started so filing it later can't drift from what it saw.
+export interface PassInfo {
+  issueUrl: string;
+  pass: number;
+  stage: 'ai' | 'human';
+  sha: string;
+  items: string[];
+  blocking: string[];
+  carried: CarriedRef[];
+  ledgerSha256: string;
+}
+
 export interface RunMeta {
   runId: string;
+  role: RunRole;
   createdAt: string;
   finishedAt: string | null;
   repoRoot: string;
@@ -48,7 +71,10 @@ export interface RunMeta {
   level: Level;
   scope: string[];
   baseUrl: string;
+  site: { url: string | null; serve: string | null };
   pages: string[];
+  // Every path the runner's own static server sent back, so a reader can check the role's list of pages against it. Null when a dev server served the site.
+  served: string[] | null;
   browser: { channel: string; version: string } | null;
   axe: { version: string; tags: string[] } | null;
   backend: string;
@@ -57,7 +83,8 @@ export interface RunMeta {
   maxTurns: number;
   maxBudgetUsd: number;
   dryRun: DryRunRecord | null;
-  finder: FinderRecord | null;
+  session: SessionRecord | null;
+  pass: PassInfo | null;
 }
 
 export interface FiledRecord {

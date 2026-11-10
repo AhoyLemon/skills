@@ -39,11 +39,34 @@ The brief states the rule in general terms (nothing outside the repository and t
 
 ## The dry run
 
-`runner.ts dry-run` starts a session isolated exactly like the finder, with no tools, and asks it to name every instruction file, memory, skill, plugin, MCP server and hook it loaded, and what it knows about the repository. The runner checks the init event mechanically, and the orchestrator reads the answer. In practice a clean one costs about a cent on Sonnet and a few cents on Opus. A finder run refuses to start without a clean dry run for the same repository, backend, model and effort from the last six hours.
+`runner.ts dry-run` starts a session isolated exactly like the finder, with no tools, and asks it to name every instruction file, memory, skill, plugin, MCP server and hook it loaded, and what it knows about the repository. The runner checks the init event mechanically, and the orchestrator reads the answer. In practice a clean one costs about a cent on Sonnet and a few cents on Opus. A finder or certifier run refuses to start without a clean dry run for the same repository, backend, model and effort from the last six hours.
 
 The dry run also says how the session reaches the model: your Claude sign-in, or an API key it will bill. `ANTHROPIC_API_KEY` passes through to the finder just as it would to `claude -p` in your own shell, so if it's set, the run bills that API account. The dry run names it so it's never a surprise.
 
 The dry run is also where an expired sign-in shows up. The runner starts sessions with the `claude` command's own login, which lapses on its own schedule, apart from whatever session is running intake. The dry run then fails at no cost with `api_error: Failed to authenticate`. Ask the user to run `claude auth login` (or `claude setup-token` for a long-lived token), then run the dry run again. Never sign in for them.
+
+## The certifier
+
+The certifier starts exactly like the finder: the same flags, the same environment, the same tools, deny rules and off-limits list, worked out from disk the same way. Only the brief differs, and a test pins that, so one clean dry run for a model and effort proves what both load.
+
+Its blindness rests on those rules, not on its brief alone:
+
+- **No PR, no issues.** All of `gh`, and web search and fetch, are denied, so it can't read the PR's description or comments, the fixer's report, or the issues as they stand now.
+- **No history, no commit messages.** All of `git` is denied, and the repository's `.git` folder is off-limits to Read, Glob and Grep. The runner switches to the loop's branch itself (only on a clean tree) and checks that HEAD matches the PR's head before the certifier starts, so it reads exactly the commit it judges.
+- **No edits.** Edits in the repository are denied, as for the finder, and the runner refuses to file a pass that changed a tracked or untracked file.
+- **Nothing the fixer left behind.** The fixer's report reaches the runner on stdin and lives only in the run records and on the PR, both off-limits. The orchestrating session's own temp folder, where its subagents' output can sit, is off-limits too, as is `~/.claude`, which holds every session's transcripts.
+
+Its brief is built by the runner from the ledger: the finder's account of each fail (never a status, a claim or the fixer's words), every carried repro, the person's "fix" decisions in their own words during a human round, and what's known and out of scope.
+
+## The fixer
+
+The fixer runs as a subagent in the user's own session (Claude Code's Agent tool), not headless. It's meant to edit, it wants the project's own conventions (its CLAUDE.md, its style), and its honesty comes from the report's required fields (fixed, partial or couldn't, each owing what it owes, every commit accounted for), not from isolation.
+
+The orchestrator hands it the runner's brief unchanged. The brief ends in an id hashed from everything above it, the report has to carry that id, and `record fixer` refuses one that doesn't match the brief the ledger produces now. The subagent's result reports its tokens and duration, and the orchestrator passes them to `record fixer` as `--tokens` and `--minutes`. Its dollar cost isn't visible to the runner, since it bills the user's session, so the PR comment says so rather than guess.
+
+Why not subagents throughout: a subagent shares the session's environment, settings, hooks, MCP servers and permissions, the skills CLI installs no agent definitions (so per-role tool limits would be words only), and the orchestrator would be writing the certifier's prompt after reading the fixer's report. The finder and the certifier must not see anything beyond their brief, so they start headless from the runner.
+
+A headless fixer, for agents without subagents, waits for the Codex port.
 
 ## What it can't promise
 
@@ -55,12 +78,14 @@ The dry run is also where an expired sign-in shows up. The runner starts session
 
 ## Run records
 
-Each run keeps a local record in `~/.local/state/actua11y/runs/<owner>__<repo>/<run-id>/` (or under `$XDG_STATE_HOME`):
+Each finder and certifier run keeps a local record in `~/.local/state/actua11y/runs/<owner>__<repo>/<run-id>/` (or under `$XDG_STATE_HOME`):
 
-- `meta.json`
+- `meta.json`: the run, its role, and for a certifier pass the list it was handed, frozen when it started
 - the filled `brief.md`
 - `transcript.jsonl`
 - `report.json`
-- `filed.json`
+- `filed.json`, for a finder run
 
-Transcripts stay local because they're large and can hold secrets. The issues record where they are.
+Transcripts stay local because they're large and can hold secrets. The issues and the PR comments record where they are.
+
+Nothing else is kept locally. The loop's state, the ledger, rides in the agent issue's body, and every raw report rides in a comment, so `status` and every loop command rebuild everything from GitHub alone.

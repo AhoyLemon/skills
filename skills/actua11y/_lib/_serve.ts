@@ -30,11 +30,14 @@ const TYPES: Record<string, string> = {
 
 export interface StaticServer {
   url: string;
+  // Every path it sent back with a 200, in the order first served, so a run's own list of pages can be checked against what was actually loaded.
+  served: () => string[];
   close: () => Promise<void>;
 }
 
 export const serveStatic = (folder: string): Promise<StaticServer> => {
   const root = resolve(folder);
+  const served = new Set<string>();
   const server = createServer((request, response) => {
     let path: string;
     try {
@@ -59,6 +62,7 @@ export const serveStatic = (folder: string): Promise<StaticServer> => {
       response.end();
     });
     stream.once('open', () => {
+      served.add(path);
       response.writeHead(200, { 'content-type': TYPES[extname(file).toLowerCase()] ?? 'application/octet-stream', 'cache-control': 'no-store' });
       stream.pipe(response);
     });
@@ -68,7 +72,7 @@ export const serveStatic = (folder: string): Promise<StaticServer> => {
     server.listen(0, '127.0.0.1', () => {
       const address = server.address();
       const port = typeof address === 'object' && address ? address.port : 0;
-      resolvePromise({ url: `http://127.0.0.1:${port}/`, close: () => new Promise((done) => server.close(() => done())) });
+      resolvePromise({ url: `http://127.0.0.1:${port}/`, served: () => [...served], close: () => new Promise((done) => server.close(() => done())) });
     });
   });
 };

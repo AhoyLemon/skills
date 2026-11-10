@@ -7,6 +7,7 @@ import { buildInvocation, claudeCode, claudeTempOffLimits, initProblems, project
 import { parseStream } from '../skills/actua11y/_backends/_claude-stream.ts';
 import type { InitInfo, RoleSpec } from '../skills/actua11y/_lib/_backend.ts';
 import { ALL_DENIES } from '../skills/actua11y/_lib/_rules.ts';
+import { auditSpec } from '../skills/actua11y/_lib/_session.ts';
 import { tempDir } from './_fixtures.ts';
 
 const finder = (): RoleSpec => ({
@@ -177,4 +178,17 @@ test('a session that failed reports why as an error, never as its answer', () =>
   const expired = parseStream([JSON.stringify({ type: 'result', subtype: 'success', is_error: true, terminal_reason: 'api_error', num_turns: 1, total_cost_usd: 0, result: 'Failed to authenticate: this login reached its time limit' })]);
   assert.deepEqual(expired.finalTexts, []);
   assert.deepEqual(expired.errors, ['api_error: Failed to authenticate: this login reached its time limit']);
+});
+
+test("the certifier's invocation is the finder's apart from the brief, so one dry run proves both, and its rules block the PR, the issues, history and edits", () => {
+  const root = tempDir('cert-root');
+  mkdirSync(join(root, '.git'));
+  const make = (role: 'finder' | 'certifier'): RoleSpec => ({ ...auditSpec({ role, root, scratch: '/tmp/actua11y-run-abc', transcriptPath: '/tmp/t.jsonl', ignored: [], agentPaths: [], model: 'claude-opus-5-5', effort: 'high', maxTurns: 300, maxBudgetUsd: 20, timeoutMs: 60_000 }), brief: role });
+  const finderCall = buildInvocation(make('finder'), parentEnv);
+  const certifierCall = buildInvocation(make('certifier'), parentEnv);
+  assert.deepEqual(certifierCall.args, finderCall.args);
+  assert.deepEqual(certifierCall.env, finderCall.env);
+  assert.equal(certifierCall.stdin, 'certifier');
+  const deny = certifierCall.args.slice(certifierCall.args.indexOf('--disallowedTools') + 1, certifierCall.args.indexOf('--'));
+  for (const rule of ['Bash(gh *)', 'Bash(git *)', 'WebFetch', 'WebSearch', 'Agent', `Edit(/${root}/**)`, `Read(/${root}/.git/**)`]) assert.ok(deny.includes(rule), rule);
 });

@@ -1,14 +1,23 @@
 // actua11y's runner: everything except starting a session is agent-neutral and lives here, and the orchestrator calls it instead of improvising. Run it with plain node 22.18+.
 import { err, red } from './_lib/_ansi.ts';
-import { parseOptions, usage } from './_lib/_args.ts';
+import { parseOptions, usage, type Options } from './_lib/_args.ts';
 import type { Backend } from './_lib/_backend.ts';
+import { cmdBriefCertifier, cmdRunCertifier } from './_lib/_cmd-certifier.ts';
 import { cmdDryRun, cmdPreflight } from './_lib/_cmd-checks.ts';
 import { cmdFile } from './_lib/_cmd-file.ts';
+import { cmdCloseOut, cmdRecordDecision, cmdRecordFinding, cmdServe } from './_lib/_cmd-human.ts';
+import { cmdBriefFixer, cmdLoopStart, cmdLoopStop, cmdRecordFixer, cmdStatus } from './_lib/_cmd-loop.ts';
 import { cmdBrief, cmdRunFinder } from './_lib/_cmd-run.ts';
+import { realLoopGh } from './_lib/_loop.ts';
 import { nodeIsNewEnough } from './_lib/_preflight.ts';
 import { claudeCode } from './_backends/_claude-code.ts';
 
 const backend: Backend = claudeCode;
+
+const subjectOf = (options: Options, allowed: string[]): string => {
+  if (!allowed.includes(options.subject)) throw new Error(`\`${options.command}\` takes ${allowed.map((subject) => `\`${subject}\``).join(', ')}, not "${options.subject}"`);
+  return options.subject;
+};
 
 const main = async (): Promise<number> => {
   if (!nodeIsNewEnough(process.version)) {
@@ -25,12 +34,30 @@ const main = async (): Promise<number> => {
       return cmdPreflight(options, backend);
     case 'dry-run':
       return cmdDryRun(options, backend);
-    case 'brief':
+    case 'brief': {
+      const subject = subjectOf(options, ['finder', 'fixer', 'certifier']);
+      if (subject === 'fixer') return cmdBriefFixer(options, realLoopGh);
+      if (subject === 'certifier') return cmdBriefCertifier(options, realLoopGh, backend);
       return cmdBrief(options, backend);
+    }
     case 'run':
-      return cmdRunFinder(options, backend);
+      return subjectOf(options, ['finder', 'certifier']) === 'certifier' ? cmdRunCertifier(options, backend, realLoopGh) : cmdRunFinder(options, backend);
     case 'file':
       return cmdFile(options);
+    case 'loop':
+      return subjectOf(options, ['start', 'stop']) === 'start' ? cmdLoopStart(options, realLoopGh) : cmdLoopStop(options, realLoopGh);
+    case 'record': {
+      const subject = subjectOf(options, ['fixer', 'finding', 'decision']);
+      if (subject === 'fixer') return cmdRecordFixer(options, realLoopGh);
+      if (subject === 'finding') return cmdRecordFinding(options, realLoopGh);
+      return cmdRecordDecision(options, realLoopGh);
+    }
+    case 'status':
+      return cmdStatus(options, realLoopGh);
+    case 'close-out':
+      return cmdCloseOut(options, realLoopGh);
+    case 'serve':
+      return cmdServe(options);
     default:
       err(`Unknown command "${options.command}".\n\n${usage(backend)}`);
       return 1;

@@ -1,6 +1,18 @@
 # Changelog
 
-## 0.1.0 (unreleased)
+## 1.0.0 (unreleased)
+
+The fix-and-certify loop, after the assess-only slice. Assess-only stays an option at intake.
+
+- A loop that resumes from GitHub alone. Its state, the ledger, rides in the agent issue's body, every raw report rides in a comment, and `status` rebuilds where things stand and prints the next command. Nothing local is needed to carry on.
+- The fixer, a subagent in the user's own session, handed the runner's brief unchanged (a brief id proves it). It goes after every ❌, one commit per finding, and its report requires fixed, partial or couldn't for each, every commit accounted for. The runner pushes, opens a draft PR, posts the report, and marks each item claimed.
+- The certifier, isolated exactly like the finder, so one dry run proves both. It never sees the PR, the issues, commit messages, git history or the fixer's report. It judges every item, runs every carried repro again word for word, re-walks the whole target, and the runner computes its verdict.
+- A cap of 3 fixer rounds plus a budget for everything the runner starts. At the cap every open ❌ moves to the person's issue with its repro steps, and the loop says so.
+- The human round: the person ticks their checks and writes what they found in their own region of their issue, which every re-render keeps byte for byte. Each finding is tagged WCAG (level and inside or outside the target, worked out from the table) or UX, and gets a decision, recorded only if their words are in their issue. A blind certifier guards their fixes, and never closes a 🕵️.
+- Close-out names the certified commit, refuses or lists anything that landed after it, puts the closing lines last, takes the PR out of draft and suggests a merge pinned to that commit. The merge stays the person's.
+- `serve`, for a URL to test a static site, and a log of every path the runner's own server sent, shown beside the pages each role says it loaded.
+
+## 0.1.0
 
 The assess-only slice.
 

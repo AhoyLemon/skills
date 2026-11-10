@@ -1,0 +1,43 @@
+// The person's side of the loop, kept pure so it can be tested: anything recorded as theirs has to be found in their own words first, and close-out waits until they've ticked or decided everything and a pass has approved.
+import type { GhIssue } from './_gh.ts';
+import { humanPasses, latestPass, MAX_HUMAN_PASSES, passPlan, waitingOnPerson, type Ledger, type Round } from './_ledger.ts';
+import { regionOf } from './_render.ts';
+
+// Only the person's own region and comments without an actua11y marker count. Text the runner wrote, even when it quotes them, never does.
+export const personSources = (person: GhIssue): string[] => [regionOf(person.body) ?? '', ...person.comments.filter((comment) => !comment.body.includes('<!-- actua11y:')).map((comment) => comment.body)];
+
+const squash = (text: string): string => text.replace(/\s+/g, ' ').trim();
+
+export const foundVerbatim = (words: string, sources: string[]): boolean => {
+  const wanted = squash(words);
+  return wanted !== '' && sources.some((source) => squash(source).includes(wanted));
+};
+
+export interface CloseOutCheck {
+  refusals: string[];
+  latest: Round | null;
+  approved: boolean;
+  atCap: boolean;
+  stillFailing: string[];
+}
+
+export const closeOutCheck = (ledger: Ledger, ticked: ReadonlySet<string>, allowAtCap: boolean): CloseOutCheck => {
+  const refusals: string[] = [];
+  if (ledger.stage !== 'human') refusals.push(ledger.stage === 'closed' ? 'This loop is already closed out' : 'The AI rounds aren\'t over yet');
+  const waiting = waitingOnPerson(ledger, ticked);
+  if (waiting.unticked.length > 0) refusals.push(`The person hasn't ticked ${waiting.unticked.join(', ')}. Only they tick checks`);
+  if (waiting.undecided.length > 0) refusals.push(`The person hasn't decided ${waiting.undecided.join(', ')}: fix, accept as is, or not applicable`);
+  const latest = latestPass(ledger) ?? null;
+  if (!latest) refusals.push('No certifier pass has run yet');
+  const plan = passPlan(ledger);
+  const judgedAt = (id: string): number | null => (ledger.items.find((item) => item.id === id)?.judged ?? ledger.human.find((item) => item.id === id)?.judged ?? null)?.pass ?? null;
+  const unjudged = latest ? plan.items.filter((id) => judgedAt(id) !== latest.n) : [];
+  if (unjudged.length > 0) refusals.push(`The latest pass didn't judge ${unjudged.join(', ')}, so run the certifier once more`);
+  const atCap = latest !== null && latest.approved !== true && humanPasses(ledger) >= MAX_HUMAN_PASSES;
+  if (latest && latest.approved !== true && !(atCap && allowAtCap)) refusals.push(atCap ? `The human round hit its cap of ${MAX_HUMAN_PASSES} certifier runs without an approving pass. Pass --at-cap to close out anyway, and the PR says so plainly` : 'The latest pass didn\'t approve. Fix what it found, push, and run the certifier again');
+  const stillFailing = latest ? plan.blocking.filter((id) => {
+    const judged = ledger.items.find((item) => item.id === id)?.judged ?? ledger.human.find((item) => item.id === id)?.judged ?? null;
+    return judged?.pass === latest.n && judged.result === 'notFixed';
+  }) : [];
+  return { refusals, latest, approved: latest?.approved === true, atCap, stillFailing };
+};

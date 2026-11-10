@@ -106,20 +106,20 @@ export const extractReportJson = (text: string): unknown => {
   }
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
+export const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
+export const nonEmpty = (value: unknown): value is string => typeof value === 'string' && value.trim() !== '';
 
 const extraKeys = (value: Record<string, unknown>, allowed: Set<string>): string[] => Object.keys(value).filter((key) => !allowed.has(key));
 
 const stripCode = (text: string): string => text.replace(/`[^`]*`/g, '');
 
-interface Checker {
+export interface Checker {
   errors: string[];
   strings: (where: string, value: string) => void;
 }
 
-const makeChecker = (): Checker => {
+export const makeChecker = (): Checker => {
   const errors: string[] = [];
   return {
     errors,
@@ -130,7 +130,7 @@ const makeChecker = (): Checker => {
   };
 };
 
-const checkKeys = (checker: Checker, where: string, value: Record<string, unknown>, allowed: Set<string>): void => {
+export const checkKeys = (checker: Checker, where: string, value: Record<string, unknown>, allowed: Set<string>): void => {
   const extra = extraKeys(value, allowed);
   if (extra.length > 0) checker.errors.push(`${where}: unknown field(s) ${extra.join(', ')}. There's no notes field: anything a machine can't settle is a check with its own entry`);
 };
@@ -142,7 +142,7 @@ const lineCount = (path: string): number => {
   return text.endsWith('\n') ? lines - 1 : lines;
 };
 
-const checkLocation = (checker: Checker, where: string, file: string, line: number, context: ValidationContext): void => {
+export const checkLocation = (checker: Checker, where: string, file: string, line: number, context: ValidationContext): void => {
   const absolute = resolve(context.repoRoot, file);
   const inside = relative(context.repoRoot, absolute);
   if (isAbsolute(file) || inside.startsWith('..')) {
@@ -162,7 +162,7 @@ const checkLocation = (checker: Checker, where: string, file: string, line: numb
   if (line > lines) checker.errors.push(`${where}.line: ${line} is past the end of ${file} (${lines} lines)`);
 };
 
-const checkFail = (checker: Checker, where: string, value: unknown, context: ValidationContext): Fail | undefined => {
+export const checkFail = (checker: Checker, where: string, value: unknown, context: ValidationContext): Fail | undefined => {
   if (!isRecord(value)) {
     checker.errors.push(`${where}: must be an object`);
     return undefined;
@@ -183,7 +183,7 @@ const checkFail = (checker: Checker, where: string, value: unknown, context: Val
   return Array.isArray(repro) ? { file, line, what, whoItHurts, behaviour, repro: repro.filter(nonEmpty) } : { file, line, what, whoItHurts, behaviour };
 };
 
-const checkCheck = (checker: Checker, where: string, value: unknown): HumanCheck | undefined => {
+export const checkCheck = (checker: Checker, where: string, value: unknown): HumanCheck | undefined => {
   if (!isRecord(value)) {
     checker.errors.push(`${where}: must be an object`);
     return undefined;
@@ -197,7 +197,7 @@ const checkCheck = (checker: Checker, where: string, value: unknown): HumanCheck
   return nonEmpty(what) && nonEmpty(how) && nonEmpty(whyNotAMachine) ? { what, how, whyNotAMachine } : undefined;
 };
 
-const checkEvidence = (checker: Checker, where: string, value: unknown): Evidence | undefined => {
+export const checkEvidence = (checker: Checker, where: string, value: unknown): Evidence | undefined => {
   if (!isRecord(value)) {
     checker.errors.push(`${where}: must be an object`);
     return undefined;
@@ -210,7 +210,7 @@ const checkEvidence = (checker: Checker, where: string, value: unknown): Evidenc
   return nonEmpty(did) && nonEmpty(saw) ? { did, saw } : undefined;
 };
 
-const listOf = <T>(checker: Checker, where: string, value: unknown, each: (where: string, item: unknown) => T | undefined): T[] => {
+export const listOf = <T>(checker: Checker, where: string, value: unknown, each: (where: string, item: unknown) => T | undefined): T[] => {
   if (value === undefined) return [];
   if (!Array.isArray(value)) {
     checker.errors.push(`${where}: must be a list`);
@@ -240,13 +240,7 @@ const checkCriterion = (checker: Checker, where: string, value: Record<string, u
   return result;
 };
 
-export const validateReport = (input: unknown, context: ValidationContext): ValidationResult => {
-  const checker = makeChecker();
-  if (!isRecord(input)) return { ok: false, errors: ['The report must be one JSON object in a ```json block at the end of your final message'] };
-  checkKeys(checker, 'report', input, TOP_KEYS);
-  if (input['schema'] !== FINDER_SCHEMA) checker.errors.push(`report.schema: must be "${FINDER_SCHEMA}"`);
-
-  const used = input['used'];
+export const checkUsed = (checker: Checker, used: unknown): Used => {
   let tools: string[] = [];
   let pages: string[] = [];
   if (!isRecord(used)) checker.errors.push('report.used: required ({ tools, pages })');
@@ -261,6 +255,15 @@ export const validateReport = (input: unknown, context: ValidationContext): Vali
     if (!Array.isArray(used['pages']) || used['pages'].length === 0 || !used['pages'].every(nonEmpty)) checker.errors.push('report.used.pages: required (every page you loaded in the browser, at least one)');
     else pages = used['pages'];
   }
+  return { tools, pages };
+};
+
+export const validateReport = (input: unknown, context: ValidationContext): ValidationResult => {
+  const checker = makeChecker();
+  if (!isRecord(input)) return { ok: false, errors: ['The report must be one JSON object in a ```json block at the end of your final message'] };
+  checkKeys(checker, 'report', input, TOP_KEYS);
+  if (input['schema'] !== FINDER_SCHEMA) checker.errors.push(`report.schema: must be "${FINDER_SCHEMA}"`);
+  const { tools, pages } = checkUsed(checker, input['used']);
 
   const expected = new Map(context.criteria.map((criterion) => [criterion.num, criterion]));
   const seen = new Set<string>();

@@ -6,7 +6,7 @@ Agentic skills made by Lemon. They're built for AI, and built with it, and they 
 
 | Skill | What it does |
 |---|---|
-| [actua11y](skills/actua11y/) | An accessibility audit for coding agents that's honest about the line between what a machine settled and what still needs a person. Today it assesses a site against WCAG 2.2 and files two GitHub issues, one for agents and one for you. The fix-and-certify loop comes next. |
+| [actua11y](skills/actua11y/) | An accessibility audit and fix loop for coding agents that's honest about the line between what a machine settled and what still needs a person. It assesses a site against WCAG 2.2 and files two GitHub issues, one for agents and one for you. Then, if you want, it fixes every proven fail, has a blind certifier check each fix, hands the rest to you with a certifier guarding your fixes, and closes both issues with one PR. |
 
 ## Install
 

@@ -5,9 +5,11 @@ import { join } from 'node:path';
 import { after } from 'node:test';
 
 import { emptyUsage } from '../skills/actua11y/_lib/_backend.ts';
+import { BEST_FAITH } from '../skills/actua11y/_lib/_copy.ts';
 import { criteriaAt, type Level } from '../skills/actua11y/_lib/_criteria.ts';
+import { initialLedger, type LoopView } from '../skills/actua11y/_lib/_ledger.ts';
 import type { RunFacts } from '../skills/actua11y/_lib/_render.ts';
-import { FINDER_SCHEMA } from '../skills/actua11y/_lib/_report.ts';
+import { FINDER_SCHEMA, type FinderReport } from '../skills/actua11y/_lib/_report.ts';
 
 const made: string[] = [];
 
@@ -70,5 +72,23 @@ export const makeFacts = (level: Level = 'A'): RunFacts => ({
   usage: { ...emptyUsage(), costUsd: 3.21, turns: 42, durationMs: 1_098_000, inputTokens: 1000, outputTokens: 20_000, cacheReadTokens: 900_000 },
   dryRunUsage: { ...emptyUsage(), costUsd: 0.06, turns: 1, durationMs: 6000 },
   fences: { denials: 0, mentions: 0 },
+  served: null,
   finishedAt: '2026-11-09T12:30:00Z',
 });
+
+// A fresh loop's view of a report: ids assigned, nothing moved yet.
+export const viewOf = (report: FinderReport, facts: RunFacts = makeFacts('A')): LoopView => ({ ledger: { ...initialLedger(report, facts, { url: facts.baseUrl, serve: null }), personUrl: 'https://github.com/AhoyLemon/skills/issues/2' }, finder: report, passes: new Map() });
+
+// Nothing actua11y renders may claim a pass. Deliberately broader than the validator's list (whole word families), so a form the validator misses still fails here. HTML comments and fenced JSON are machine records (the validator already holds the model-written strings inside them to the same rule), the best-faith line is the one place the rule itself is stated, and the loop's agreed vocabulary (the certifier, pass N, certified at a commit, the certified commit) is the only exception.
+export const CLAIM = /\b(pass\w*|compl[iy]\w*|conform\w*|certif\w*)\b/i;
+
+export const claimFree = (text: string): string =>
+  text
+    .split(BEST_FAITH)
+    .join('')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/(`{3,})json\n[\s\S]*?\n\1/g, '')
+    .replace(/\bcertifier\b/gi, '')
+    .replace(/\bcertified at\b/gi, '')
+    .replace(/\bthe certified commit\b/gi, '')
+    .replace(/\bpass \d+\b/gi, '');

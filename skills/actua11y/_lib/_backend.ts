@@ -1,6 +1,6 @@
 // The one seam between actua11y and whichever agent starts its sessions. Everything outside skills/actua11y/_backends/ talks to this interface only.
 
-export type Role = 'finder' | 'dry-run';
+export type Role = 'finder' | 'certifier' | 'dry-run';
 
 // What a role may never do, named by intent so each backend can translate it into its own rules.
 export type DenyCategory = 'git' | 'github' | 'web' | 'subagents' | 'installs';

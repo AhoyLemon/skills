@@ -52,7 +52,8 @@ export const SESSION_SETTINGS = {
   enabledPlugins: { 'cc-plugin-agents-md@builtin': false },
 };
 
-export const FINDER_TOOLS = ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Edit'];
+// The finder and the certifier get the same tools, so one dry run proves what both load.
+export const AUDIT_TOOLS = ['Read', 'Glob', 'Grep', 'Bash', 'Write', 'Edit'];
 
 const DENY_RULES: Record<DenyCategory, string[]> = {
   git: ['Bash(git *)'],
@@ -73,7 +74,7 @@ export interface Invocation {
 // Absolute paths in permission rules start with a double slash.
 const rulePath = (path: string): string => `/${path}`;
 
-export const toolsFor = (spec: RoleSpec): string[] => (spec.noTools ? [] : FINDER_TOOLS);
+export const toolsFor = (spec: RoleSpec): string[] => (spec.noTools ? [] : AUDIT_TOOLS);
 
 // Claude Code keeps each session's task output and scratch files in /tmp/claude-<uid>/<project>/<session>/, the project named after its folder with every character but letters and digits turned into a dash.
 const claudeTempRoot = (): string | null => {

@@ -32,6 +32,7 @@ test('the static server serves its folder, refuses to leave it, and survives a m
     assert.equal(await rawStatus(server.url, '/50%-off'), 400);
     assert.equal(await rawStatus(server.url, '/missing.html'), 404);
     assert.equal((await fetch(server.url)).status, 200, 'still up after the bad requests');
+    assert.deepEqual(server.served(), ['/'], 'only what it actually sent, so a run\'s own list of pages can be checked against it');
   } finally {
     await server.close();
   }
