@@ -68,4 +68,5 @@ test('filing refuses an invalid run, an edited report, a run that wrote to the a
   assert.match(fileRefusal(meta({ strays: [' M index.html'] }), REPORT, ['index.html']) ?? '', /changed tracked or untracked files/, 'no way past a write to the app');
   assert.match(fileRefusal(meta({ ignoredStrays: ['.cache/'] }), REPORT, []) ?? '', /\.cache\//);
   assert.equal(fileRefusal(meta({ ignoredStrays: ['.cache/'] }), REPORT, ['.cache']), null, 'acknowledged with --allow-ignored');
+  assert.match(fileRefusal(meta({ errors: ['stopped at start: MCP servers loaded: slack'] }), REPORT, []) ?? '', /stopped at its first event/, 'a session that loaded something it shouldn\'t, whatever it reported');
 });

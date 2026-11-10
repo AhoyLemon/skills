@@ -14,6 +14,8 @@ export interface Criterion {
   url: string;
   understanding: string;
   title: string;
+  // The exceptions, conditions and notes that follow the title, each as "Handle: text". A title ending "except for the following:" means nothing without them.
+  details: string[];
 }
 
 interface CriteriaTable {

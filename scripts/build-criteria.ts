@@ -2,6 +2,18 @@
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+interface W3cDetailItem {
+  handle?: string;
+  text: string;
+}
+
+interface W3cDetail {
+  type: string;
+  handle?: string;
+  text?: string;
+  items?: W3cDetailItem[];
+}
+
 interface W3cCriterion {
   id: string;
   num: string;
@@ -9,6 +21,7 @@ interface W3cCriterion {
   title: string;
   level: string;
   versions: string[];
+  details?: W3cDetail[];
 }
 
 interface W3cData {
@@ -23,6 +36,7 @@ interface CriterionRow {
   url: string;
   understanding: string;
   title: string;
+  details: string[];
 }
 
 const SOURCE = 'https://www.w3.org/WAI/WCAG22/wcag.json';
@@ -44,6 +58,12 @@ const byNumber = (a: CriterionRow, b: CriterionRow): number => {
   return 0;
 };
 
+const labelled = (handle: string | undefined, text: string): string => (handle ? `${handle}: ${text}` : text);
+
+// W3C keeps exceptions (1.4.3's large text, say), conditions and notes in details, apart from the title. Each list item and note keeps its own handle in front of its text.
+const detailsOf = (sc: W3cCriterion): string[] =>
+  (sc.details ?? []).flatMap((detail) => (detail.items ? detail.items.map((item) => labelled(item.handle, item.text)) : detail.text ? [labelled(detail.handle, detail.text)] : []));
+
 const criteria: CriterionRow[] = data.principles
   .flatMap((principle) => principle.guidelines.flatMap((guideline) => guideline.successcriteria))
   .filter((sc) => sc.versions.includes('2.2') && LEVELS.has(sc.level))
@@ -55,6 +75,7 @@ const criteria: CriterionRow[] = data.principles
     url: `https://www.w3.org/TR/WCAG22/#${sc.id}`,
     understanding: `https://www.w3.org/WAI/WCAG22/Understanding/${sc.id}.html`,
     title: sc.title,
+    details: detailsOf(sc),
   }))
   .sort(byNumber);
 
@@ -62,7 +83,7 @@ const table = {
   generatedBy: 'scripts/build-criteria.ts in AhoyLemon/skills. Regenerate it, never edit it by hand.',
   source: SOURCE,
   sourceModified,
-  copyright: 'Copyright © W3C® (MIT, ERCIM, Keio, Beihang). Criterion numbers, names, levels and titles are W3C content, unchanged.',
+  copyright: 'Copyright © W3C® (MIT, ERCIM, Keio, Beihang). Criterion numbers, names, levels, titles and details are W3C content, unchanged apart from each detail item or note being prefixed with its own handle.',
   license: 'W3C Document License, https://www.w3.org/copyright/document-license/',
   addedHere: 'The url and understanding links are built from each criterion id by this script, not taken from the source.',
   criteria,

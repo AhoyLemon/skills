@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { appendFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
 import { criteriaAt } from '../skills/actua11y/_lib/_criteria.ts';
@@ -107,6 +109,15 @@ test('file:line has to exist on disk', () => {
   outside['file'] = '../../etc/hosts';
   assert.match(errorsFor(escape).join('\n'), /relative to the repository root/);
 
+  // A file that ends in a newline has no line after it, though splitting on newlines counts an empty one.
+  const trailing = makeSite();
+  appendFileSync(join(trailing, 'css', 'site.css'), '\n');
+  const pastLast = report();
+  const cssFail = (entry(pastLast, '1.1.1')['fails'] as Record<string, unknown>[])[0] ?? {};
+  cssFail['file'] = 'css/site.css';
+  cssFail['line'] = 3;
+  assert.match((() => { const r = validateReport(pastLast, { ...context, repoRoot: trailing }); return r.ok ? '' : r.errors.join('\n'); })(), /line: 3 is past the end of css\/site\.css \(2 lines\)/);
+
   const untracked = validateReport(report(), { ...context, tracked: new Set(['css/site.css']) });
   assert.ok(!untracked.ok);
   assert.match(untracked.ok ? '' : untracked.errors.join('\n'), /index\.html" isn't tracked by git/);
@@ -121,7 +132,7 @@ test('no claims of a pass or compliance, except quoted UI text in backticks', ()
   entry(compliant, '1.2.1')['na'] = 'Compliant by design';
   assert.match(errorsFor(compliant).join('\n'), /uses "Compliant"/);
 
-  for (const word of ['complies', 'compliance', 'conformance', 'certified']) {
+  for (const word of ['complies', 'complied', 'compliance', 'conform', 'conforming', 'conformance', 'certified', 'certifying']) {
     const claim = report();
     entry(claim, '2.4.2')['evidence'] = [{ did: 'Checked titles', saw: `The titles show ${word} with the guidelines` }];
     assert.match(errorsFor(claim).join('\n'), new RegExp(`uses "${word}"`, 'i'), word);

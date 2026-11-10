@@ -1,6 +1,6 @@
 // Starts actua11y's sessions as headless Claude Code runs: an emptied environment, none of the user's settings, memory, skills, plugins, MCP servers or hooks, and deny rules backing every word of the brief.
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -75,9 +75,32 @@ const rulePath = (path: string): string => `/${path}`;
 
 export const toolsFor = (spec: RoleSpec): string[] => (spec.noTools ? [] : FINDER_TOOLS);
 
+// Claude Code keeps each session's task output and scratch files in /tmp/claude-<uid>/<project>/<session>/, the project named after its folder with every character but letters and digits turned into a dash.
+const claudeTempRoot = (): string | null => {
+  const { uid } = userInfo();
+  if (uid < 0) return null;
+  const root = join('/tmp', `claude-${uid}`);
+  return existsSync(root) ? realpathSync(root) : root;
+};
+
+export const projectSlug = (cwd: string): string => cwd.replace(/[^A-Za-z0-9]/g, '-');
+
+// Every other project's folder, and the sessions already in this one (the orchestrator's among them), but never the project folder the finder's own session is about to be created in.
+export const claudeTempOffLimits = (root: string, cwd: string): string[] => {
+  if (!existsSync(root)) return [];
+  const own = projectSlug(cwd);
+  return readdirSync(root).flatMap((entry) => {
+    const path = join(root, entry);
+    return entry === own && statSync(path).isDirectory() ? readdirSync(path).map((session) => join(path, session)) : [path];
+  });
+};
+
 export const allowRulesFor = (spec: RoleSpec): string[] => {
   if (spec.noTools) return [];
-  const rules = ['Read', 'Glob', 'Grep', 'Bash'];
+  // Read rules govern Glob and Grep too, so these are what keep all three inside the repository, the scratch folder and the session's own task folder. A bare Read, Glob or Grep would let one search cover the whole disk. Bash isn't fenced this way.
+  const root = claudeTempRoot();
+  const readable = [spec.cwd, ...(spec.scratch ? [spec.scratch] : []), ...(root ? [join(root, projectSlug(spec.cwd))] : [])];
+  const rules = [...readable.map((path) => `Read(${rulePath(path)}/**)`), 'Bash'];
   if (spec.scratch) rules.push(`Edit(${rulePath(spec.scratch)}/**)`);
   return rules;
 };
@@ -157,9 +180,12 @@ const runInvocation = (invocation: Invocation, spec: RoleSpec): Promise<SessionR
     const takeLine = (line: string): void => {
       lines.push(line);
       appendFileSync(spec.transcriptPath, `${line}\n`);
-      if (checkedInit || !line.includes('"subtype":"init"')) return;
+      if (checkedInit) return;
+      // Parsed, not matched as text, so a change in how the JSON is spaced can't let a session skip the check.
+      const init = parseStream([line]).init;
+      if (!init) return;
       checkedInit = true;
-      const problems = initProblems(parseStream([line]).init, spec);
+      const problems = initProblems(init, spec);
       if (problems.length > 0) {
         aborts.push(...problems.map((problem) => `stopped at start: ${problem}`));
         kill();
@@ -235,9 +261,8 @@ export const claudeCode: Backend = {
   start: (spec) => runInvocation(buildInvocation(spec, process.env), spec),
   resume: (spec, sessionId, message) => runInvocation(buildInvocation(spec, process.env, { sessionId, message }), spec),
   initProblems,
-  offLimits: () => {
-    // Claude Code keeps every session's scratch files and task output under /tmp/claude-<uid>, this run's orchestrator included.
-    const { uid } = userInfo();
-    return uid >= 0 ? [join('/tmp', `claude-${uid}`)] : [];
+  offLimits: (cwd) => {
+    const root = claudeTempRoot();
+    return root ? claudeTempOffLimits(root, cwd) : [];
   },
 };

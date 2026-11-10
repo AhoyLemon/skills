@@ -107,7 +107,7 @@ The fix-and-certify loop comes in a later version. Don't start fixing things you
 
 - `runner.ts`: the commands above. Everything agent-neutral lives behind it.
 - `briefs/finder.md`, `briefs/dry-run.md`: what the fresh sessions are told, filled in by the runner.
-- `data/wcag22.json`: the WCAG 2.2 criteria and levels, generated from W3C's data. Levels come from here, never from memory.
+- `data/wcag22.json`: the WCAG 2.2 criteria, levels, titles and their exceptions and notes, generated from W3C's data. Levels come from here, never from memory.
 - `kit/`: the browser scripts each run installs into its own scratch folder.
 - `references/claude-code.md`: how isolation works in Claude Code, and its known limits.
 - `CHANGELOG.md`

@@ -78,7 +78,7 @@ export interface Backend {
   resume: (spec: RoleSpec, sessionId: string, message: string) => Promise<SessionResult>;
   initProblems: (init: InitInfo | null, spec: RoleSpec) => string[];
   // Where this agent keeps other sessions' files outside the home folder (temp scratch, task output), so the finder can be barred from them.
-  offLimits: () => string[];
+  offLimits: (cwd: string) => string[];
 }
 
 export const emptyUsage = (): Usage => ({ costUsd: 0, turns: 0, durationMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });

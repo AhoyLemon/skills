@@ -17,7 +17,7 @@ One rule runs through all of it: **a machine can prove a fail, and it can never 
 - **A shell,** for running Node scripts in your scratch folder, {{SCRATCH}}.
 - **A browser kit,** already installed in that scratch folder and driving {{BROWSER}}:
   - `node {{SCRATCH}}/kit/scan.ts --url <url> --tags {{AXE_TAGS}} --out {{SCRATCH}}/<name>.json` runs axe on a page with the tags for this level. Add `--viewport 390x844` for a phone, or `--wait <ms>` for pages that settle late. Run it on every page.
-  - `playwright-core` is installed there as well, so write your own scripts in the scratch folder for everything else: walking the Tab order, opening dialogs, pressing Escape, zooming to 400%, reflowing at 320px, reading computed colours. Launch with `chromium.launch({ channel: '{{CHANNEL}}', headless: true })`.
+  - `playwright-core` is installed there as well, so write your own scripts in the scratch folder for everything else: walking the Tab order, opening dialogs, pressing Escape, zooming to 400%, reflowing at 320px, reading computed colours. Launch with `chromium.launch({ channel: '{{CHANNEL}}', headless: true })`. The scratch folder is an ES module package, so write scripts as `.mjs` with `import` (or `.cjs` if you want `require`).
 - **Reading axe:** treat a violation as a lead to confirm in the source (and cite the source's file and line), `incomplete` as something axe couldn't decide, and a rule with no violations as evidence for that one rule on that one page, never for a whole criterion. axe covers only part of WCAG and skips its experimental rules (orientation lock among them), so most criteria need you.
 
 ## How to judge
@@ -61,7 +61,7 @@ The shape, as TypeScript for reference:
 - `used.tools` lists every tool, script and check you used, for example "Read", "Grep", "kit/scan.ts at 390x844", "own script: Tab order on /", "own script: Escape on the menu dialog".
 - `used.pages` lists every page you loaded.
 - Paths are relative to the repository root. Put quoted UI text in backticks.
-- Words you don't use anywhere in the report, the tools list included: pass, passes, passed, passing, comply, complies, compliant, compliance, conformant, conforms, conformance, certify, certifies, certified.
+- Words you don't use anywhere in the report, the tools list included: any form of pass, comply, conform or certify (passes, passing, complied, compliant, compliance, conforming, conformance, certified and the rest).
 
 ## The criteria ({{CRITERIA_COUNT}})
 

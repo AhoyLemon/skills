@@ -58,7 +58,8 @@ export interface ValidationContext {
 export type ValidationResult = { ok: true; report: FinderReport } | { ok: false; errors: string[] };
 
 // Code spans are stripped first, so UI text quoted in backticks (a button labelled `Pass`) doesn't count.
-const CLAIM_WORDS = /\b(pass|passes|passed|passing|comply|complies|compliant|compliance|conformant|conforms|conformance|certify|certifies|certified)\b/i;
+// Every form of the four words that would claim a pass. "Certificate" stays allowed, since "not a certificate" is what actua11y says of itself.
+const CLAIM_WORDS = /\b(pass(es|ed|ing)?|compl(y|ies|ied|ying|iant|iance)|conform(s|ed|ing|ant|ance|ity)?|certif(y|ies|ied|ying))\b/i;
 
 const TOP_KEYS = new Set(['schema', 'used', 'criteria']);
 const USED_KEYS = new Set(['tools', 'pages']);
@@ -134,7 +135,12 @@ const checkKeys = (checker: Checker, where: string, value: Record<string, unknow
   if (extra.length > 0) checker.errors.push(`${where}: unknown field(s) ${extra.join(', ')}. There's no notes field: anything a machine can't settle is a check with its own entry`);
 };
 
-const lineCount = (path: string): number => readFileSync(path, 'utf8').split('\n').length;
+// A final newline ends the last line rather than starting another one.
+const lineCount = (path: string): number => {
+  const text = readFileSync(path, 'utf8');
+  const lines = text.split('\n').length;
+  return text.endsWith('\n') ? lines - 1 : lines;
+};
 
 const checkLocation = (checker: Checker, where: string, file: string, line: number, context: ValidationContext): void => {
   const absolute = resolve(context.repoRoot, file);

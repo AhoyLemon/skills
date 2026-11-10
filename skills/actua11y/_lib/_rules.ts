@@ -36,7 +36,12 @@ export const computeOffLimits = (input: OffLimitsInput): string[] => {
   const add = (path: string): void => {
     if (!existsSync(path)) return;
     const resolved = real(path);
-    if (holds(resolved, scratch) || holds(resolved, repo)) return;
+    if (holds(resolved, scratch) || holds(resolved, repo)) {
+      // Spare only the way down: everything else inside the folder stays barred, so a repository cloned into an agent's temp folder doesn't open its neighbours.
+      if (resolved === scratch || resolved === repo || !statSync(resolved).isDirectory()) return;
+      for (const entry of readdirSync(resolved)) add(join(resolved, entry));
+      return;
+    }
     paths.add(statSync(path).isDirectory() ? `${resolved}/` : resolved);
   };
   add(join(input.repoRoot, '.git'));

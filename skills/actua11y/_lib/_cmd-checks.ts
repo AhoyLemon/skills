@@ -37,7 +37,7 @@ export const cmdDryRun = async (options: Options, backend: Backend): Promise<num
     readOnly: true,
     noTools: true,
     deny: ALL_DENIES,
-    offLimits: computeOffLimits({ repoRoot: root, runsRoot: stateRoot(), scratch: null, ignoredInRepo: [], agentPaths: backend.offLimits() }),
+    offLimits: computeOffLimits({ repoRoot: root, runsRoot: stateRoot(), scratch: null, ignoredInRepo: [], agentPaths: backend.offLimits(root) }),
     model: options.model,
     effort: options.effort,
     maxTurns: 2,

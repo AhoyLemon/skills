@@ -37,7 +37,7 @@ interface BriefInput {
 const tableCell = (text: string): string => text.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ');
 
 export const criteriaTableFor = (level: Level): string =>
-  ['| Criterion | Level | What it asks |', '|---|---|---|', ...criteriaAt(level).map((c) => `| ${c.num} ${tableCell(c.name)} | ${c.level} | ${tableCell(c.title)} |`)].join('\n');
+  ['| Criterion | Level | What it asks |', '|---|---|---|', ...criteriaAt(level).map((c) => `| ${c.num} ${tableCell(c.name)} | ${c.level} | ${tableCell([c.title, ...c.details].join(' '))} |`)].join('\n');
 
 export const finderBrief = (input: BriefInput): string =>
   fillTemplate(readBrief('finder'), {
@@ -97,7 +97,7 @@ export const cmdBrief = (options: Options, backend: Backend): number => {
   const level = requireLevel(options);
   const root = options.cwd;
   const scratch = '<a fresh scratch folder per run>';
-  const spec = finderSpec(options, root, null, '', [], backend.offLimits());
+  const spec = finderSpec(options, root, null, '', [], backend.offLimits(root));
   spec.scratch = scratch;
   out(finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl: options.url ?? '<served for the run>', pages: options.pages, scratch, browser: '<your installed Chrome or Edge>', channel: 'chrome', spec }));
   return 0;
@@ -174,7 +174,7 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
 
     const before = treeState(root);
     const ignored = ignoredIn(root, ['.']);
-    const spec = finderSpec(options, root, scratch, join(dir, 'transcript.jsonl'), ignored, backend.offLimits());
+    const spec = finderSpec(options, root, scratch, join(dir, 'transcript.jsonl'), ignored, backend.offLimits(root));
     const browser = `${probe.channel} ${probe.version} (headless)`;
     spec.brief = finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl, pages, scratch, browser, channel: probe.channel, spec });
     writeFileSync(join(dir, 'brief.md'), spec.brief);
@@ -233,7 +233,9 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
       attempts += 1;
       attempt = reportFrom(session, context);
     }
-    const validation = attempt.validation;
+    // A session stopped at its first event, or one that never said what it loaded, isn't trusted, whatever it reported.
+    const untrusted = errors.filter((error) => error.startsWith('stopped at start'));
+    const validation: ValidationResult = untrusted.length > 0 ? { ok: false, errors: untrusted } : attempt.validation;
 
     const changes = treeChanges(before, treeState(root), options.allowIgnored);
     meta.finishedAt = new Date().toISOString();

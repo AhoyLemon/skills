@@ -53,10 +53,11 @@ const writePreview = (dir: string, report: FinderReport, facts: RunFacts): void 
 export const fileRefusal = (meta: RunMeta, reportText: string | null, allowIgnored: string[]): string | null => {
   const finder = meta.finder;
   if (!finder?.valid || reportText === null) return `Run ${meta.runId} has no validated report to file`;
+  if (finder.errors.some((error) => error.startsWith('stopped at start'))) return `Run ${meta.runId}'s session was stopped at its first event (${finder.errors.join('. ')}), so nothing it reported can be filed. Show the user, and run the dry run and the finder again`;
   if (!finder.reportSha256 || reportHash(reportText) !== finder.reportSha256) return `The report for run ${meta.runId} changed after the finder ran. actua11y files only what the finder reported and the runner checked, so run the finder again rather than editing its report`;
   if (finder.strays.length > 0) return `Run ${meta.runId} changed tracked or untracked files in the repository while it ran. Show the user, and run the finder again on a clean tree`;
   const unexplained = finder.ignoredStrays.filter((path) => !allowIgnored.includes(path.replace(/\/$/, '')));
-  if (unexplained.length > 0) return `New gitignored paths appeared while the finder ran: ${unexplained.join(', ')}. Show the user. If they confirm a path came from their own dev server (a cache folder, say), file with --allow-ignored for each one`;
+  if (unexplained.length > 0) return `Gitignored paths appeared or vanished while the finder ran: ${unexplained.join(', ')}. Show the user. If they confirm a path came from their own dev server (a cache folder, say), file with --allow-ignored for each one`;
   return null;
 };
 

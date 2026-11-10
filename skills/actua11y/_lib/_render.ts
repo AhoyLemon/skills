@@ -74,13 +74,22 @@ const targetLine = (facts: RunFacts): string => {
   return `**WCAG 2.2 ${levelLabel(facts.level)}** · scope ${scope} · at \`${facts.commit.slice(0, 12)}\` on \`${facts.branch}\``;
 };
 
+// The finder's list has no upper bound, and a long one mustn't stop a paid run from being filed. The raw report keeps every page.
+const PAGES_SHOWN = 50;
+
+const pagesList = (pages: string[]): string => {
+  if (pages.length === 0) return 'none loaded';
+  const rest = pages.length - PAGES_SHOWN;
+  return `${pages.slice(0, PAGES_SHOWN).map(codeSpan).join(', ')}${rest > 0 ? `, and ${rest.toLocaleString('en-US')} more, every one of them in the raw report` : ''}`;
+};
+
 const usedSection = (report: FinderReport, facts: RunFacts): string => {
   const lines = [
     '## What the finder used',
     '',
     `- **Browser:** ${facts.browser ? `${facts.browser.channel} ${facts.browser.version}, headless, recorded by the runner. One engine checked, so behaviour in other engines is a person's call` : 'none'}`,
     `- **axe:** ${facts.axe ? `axe-core ${facts.axe.version}, tags ${facts.axe.tags.map((tag) => `\`${tag}\``).join(' ')}. An axe result covers one rule, never a whole criterion, and axe covers only part of WCAG` : 'not run'}`,
-    `- **Pages:** ${report.used.pages.length > 0 ? report.used.pages.map(codeSpan).join(', ') : 'none loaded'} (base ${facts.baseUrl})`,
+    `- **Pages:** ${pagesList(report.used.pages)} (base ${facts.baseUrl})`,
     `- **Tools:** ${report.used.tools.map(safeText).join(', ')}`,
     `- **Session:** a fresh, read-only ${facts.backend} session with none of your settings, memory or plugins. Model \`${facts.model}\`, effort \`${facts.effort}\``,
     `- **Cost:** finder ${formatUsage(facts.usage)}${facts.dryRunUsage ? `, dry run ${formatUsage(facts.dryRunUsage)}` : ''}. Costs are the agent's own estimates`,
@@ -231,7 +240,13 @@ export const renderRawComments = (report: FinderReport, facts: RunFacts): string
   const json = JSON.stringify(report, null, 2);
   const room = GITHUB_LIMIT - 400;
   const chunks: string[] = [];
-  for (let start = 0; start < json.length; start += room) chunks.push(json.slice(start, start + room));
+  for (let start = 0; start < json.length; ) {
+    let end = Math.min(start + room, json.length);
+    // Never cut between the two halves of an emoji or any other character outside the basic plane.
+    if (end < json.length && /[\uD800-\uDBFF]/.test(json.charAt(end - 1))) end -= 1;
+    chunks.push(json.slice(start, end));
+    start = end;
+  }
   return chunks.map((chunk, i) => {
     const part = chunks.length > 1 ? ` (part ${i + 1} of ${chunks.length}, join the parts to parse)` : '';
     const longestRun = Math.max(0, ...[...chunk.matchAll(/`+/g)].map((match) => match[0].length));

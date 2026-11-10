@@ -39,7 +39,8 @@ test('both issues carry the best-faith line, and the AAA warning only at AAA', (
 
 test('nothing actua11y renders says the target passes', () => {
   // The rule itself ("it can never prove a pass") is the one place the word may appear.
-  const claim = /\b(pass|passes|passed|passing|comply|complies|compliant|compliance|conformant|conforms|conformance|certify|certifies|certified)\b/i;
+  // Deliberately broader than the validator's list (whole word families), so a form the validator misses still fails here.
+  const claim = /\b(pass\w*|compl[iy]\w*|conform\w*|certif\w*)\b/i;
   for (const level of ['A', 'AA', 'AAA'] as const) {
     for (const piece of renderAll(level)) assert.doesNotMatch(piece.split(BEST_FAITH).join(''), claim);
   }
@@ -49,6 +50,29 @@ test('a page the finder names can\'t break out of its code span to ping anyone',
   const report = { ...validReport('A'), used: { tools: ['Read'], pages: ['http://127.0.0.1:4173/`@everyone`'] } };
   const agent = renderAgentIssue(report, makeFacts('A'), { personUrl: 'https://github.com/AhoyLemon/skills/issues/2' });
   assert.ok(agent.body.includes('`` http://127.0.0.1:4173/`@everyone` ``'));
+});
+
+test('a long pages list is cut short in the issue, so a paid run can still be filed', () => {
+  const pages = Array.from({ length: 1500 }, (_, i) => `http://127.0.0.1:4173/page-${i}.html`);
+  const report = { ...validReport('AA'), used: { tools: ['Read'], pages } };
+  const agent = renderAgentIssue(report, makeFacts('AA'), { personUrl: 'https://github.com/AhoyLemon/skills/issues/2' });
+  assert.match(agent.body, /and 1,450 more, every one of them in the raw report/);
+  assert.ok(!agent.body.includes('page-1499.html'));
+});
+
+test('the raw report never splits an emoji between two comments', () => {
+  const room = GITHUB_LIMIT - 400;
+  const base = validReport('A');
+  const withSaw = (saw: string): FinderReport => ({ ...base, criteria: base.criteria.map((item) => (item.num === '2.4.2' ? { ...item, evidence: [{ did: 'Read the titles', saw }] } : item)) });
+  // Pad until the emoji's first half is the last character a full comment holds.
+  const at = JSON.stringify(withSaw('MARK🦋'), null, 2).indexOf('🦋');
+  const report = withSaw(`${'x'.repeat(room - 1 - at)}MARK🦋`);
+  const json = JSON.stringify(report, null, 2);
+  assert.equal(json.indexOf('🦋'), room - 1, 'the fixture puts the emoji across the boundary');
+  const parts = renderRawComments(report, makeFacts('A')).map((comment) => comment.match(/```+json\n([\s\S]*)\n```+\n/)?.[1] ?? '');
+  assert.ok(parts.length > 1);
+  assert.equal(parts.join(''), json);
+  for (const part of parts) assert.ok(!/^[\uDC00-\uDFFF]|[\uD800-\uDBFF]$/.test(part), 'no half emoji at either end');
 });
 
 test('fails go to agents with code links, checks go to the person, evidence stays visible but collapsed', () => {

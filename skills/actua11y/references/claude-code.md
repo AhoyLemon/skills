@@ -14,7 +14,7 @@ How the Claude Code backend (`_backends/_claude-code.ts`) starts a fresh, isolat
 | Memory | `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` and `autoMemoryEnabled: false` | A session in the same project folder could otherwise load memories about the work, or write some |
 | Git context | `CLAUDE_CODE_DISABLE_GIT_INSTRUCTIONS=1` and `includeGitInstructions: false` | Git instructions put a status snapshot, recent commit messages included, into context |
 | Permissions | `--permission-mode dontAsk` and `--permission-prompts none` | Anything not allowed is denied, and nobody is there to approve it |
-| Tools | The finder gets `Read Glob Grep Bash Write Edit`, with edits allowed only under its scratch folder. The dry run gets none (`--tools ""`) | Read-only by rule, with a place to write its own browser scripts |
+| Tools | The finder gets `Read Glob Grep Bash Write Edit`. Reads are allowed only under the repository, its scratch folder and its own task folder, and edits only under its scratch folder. There's no bare `Read`, `Glob` or `Grep` rule, because Read rules govern all three, so anything else is refused and counted. The dry run gets no tools (`--tools ""`) | Read-only by rule, with a place to write its own browser scripts. Verified: with scoped Read rules, Read, Glob and Grep on a file outside are each refused, and still work inside the repository. With a bare Glob or Grep kept, those two read anywhere |
 | Deny rules | All git, all gh, installs, web search and fetch, subagents, edits in the repository, and reads of every off-limits path | Words in a brief are a request, and rules make it a requirement |
 | Model and effort | `--model` and `--effort` pinned per role (by default `claude-opus-5-5` at `high`), and recorded on every issue | Effort once leaked in through the environment |
 | Caps | `--max-turns`, `--max-budget-usd`, and a wall-clock timeout that kills the process. A correction round gets only what's left of all three, and the session is killed if the runner is stopped | A stuck session can't run up a bill |
@@ -26,11 +26,12 @@ How the Claude Code backend (`_backends/_claude-code.ts`) starts a fresh, isolat
 - actua11y's own run records
 - any other `actua11y-*` scratch folder
 - credential and agent folders in your home directory (`.claude`, `.agents`, `.codex`, `.config/gh`, `.ssh`, `.aws` and the like), plus `~/.claude.json`, which lists the path of every project you've opened in Claude Code
-- Claude Code's own temp folder, `/tmp/claude-<uid>/`, which holds every session's scratch files and task output, the orchestrating session's included
+- Claude Code's own temp folder, `/tmp/claude-<uid>/`, which holds every session's scratch files and task output: every other project's folder, and the sessions already in this project's folder (the orchestrating session's among them), but not the folder the finder's own session is about to be created in
+- where a barred folder holds the repository or the scratch folder (an app cloned into an agent's temp folder, say), everything in it except the way down to them
 
 The brief states the rule in general terms (nothing outside the repository and the scratch folder, nothing in `.git` or gitignored), generated from the same spec the backend enforces. It deliberately doesn't list the paths, which would hand the session the names of your other projects.
 
-**Every session's first event is checked.** The init event names the model, tools, MCP servers, skills and plugins the session actually loaded. If anything is unexpected (an MCP server, a skill, a non-built-in plugin, a tool it shouldn't have, the wrong model or permission mode), the backend kills the session on the spot. A session that never sends one is stopped the same way, and never retried.
+**Every session's first event is checked.** The init event names the model, tools, MCP servers, skills and plugins the session actually loaded. If anything is unexpected (an MCP server, a skill, a non-built-in plugin, a tool it shouldn't have, the wrong model or permission mode), the backend kills the session on the spot, and nothing it reported is ever filed. A session that never sends one is judged the same way once it ends: no retry, and nothing filed.
 
 **Denied tool calls are counted.** When the finder tries something its rules deny, the run's summary says how many times and points at the transcript, so a session testing its fences doesn't go unnoticed.
 
@@ -48,7 +49,7 @@ The dry run is also where an expired sign-in shows up. The runner starts session
 
 - **The session knows who's signed in.** With a subscription login, Claude Code tells it the account's email. That's the login, not the project.
 - **Paths carry meaning.** A repository called `smoke` or `test` tells the finder something. Name things like a real project when you want a blind run.
-- **Deny rules don't sandbox a shell.** A determined script could still read or write past them. The rules stop habits and accidents, and the runner catches what slips through. It snapshots tracked and untracked files, the gitignored entries (folders collapsed, so a dev server rewriting its own cache doesn't count), HEAD and the branch before and after every run. It refuses to file a run that changed a tracked or untracked file, and it holds back a run with new gitignored paths until the user confirms each one.
+- **Deny rules don't sandbox a shell.** Read, Glob and Grep are fenced to the repository and scratch folder, but Bash isn't, and Claude Code's own refusal message suggests trying another tool. A determined script could still read or write past the rules. The rules stop habits and accidents, and the runner catches what slips through. It snapshots tracked and untracked files, the gitignored entries (folders collapsed, so a dev server rewriting its own cache doesn't count), HEAD and the branch before and after every run. It refuses to file a run that changed a tracked or untracked file, and it holds back a run with new gitignored paths until the user confirms each one.
 - **One engine.** The finder drives Chromium (branded Chrome or Edge). Behaviour in WebKit and Firefox is always a person's check.
 - **Built-in plugins still load.** Claude Code's own built-ins (security, privacy, telemetry) appear even in safe mode. The backend allows those, minus the AGENTS.md one, and stops a session on anything else.
 

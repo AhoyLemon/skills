@@ -115,10 +115,21 @@ test('off-limits paths come from disk, but never bar the run from its own scratc
   assert.ok(offLimits.includes(`${join(root, '.git')}/`));
   assert.ok(offLimits.includes(`${agentTemp}/`), 'a folder the backend names as its own');
   assert.ok(!offLimits.some((path) => path.includes('no-such-agent-folder')), 'only paths that exist');
-  // The scratch folder lives elsewhere here, so only the repository can be the reason the folder is spared.
-  const holdsRepo = computeOffLimits({ repoRoot: root, runsRoot: join(parent, 'no-such-runs'), scratch: tempDir('elsewhere'), ignoredInRepo: [], agentPaths: [parent] });
-  assert.ok(!holdsRepo.some((path) => root.startsWith(path.replace(/\/$/, ''))), 'never the folder the audited repository lives in');
   assert.ok(offLimits.includes(`${join(parent, 'answers')}/`), 'a sibling folder');
   assert.ok(offLimits.includes(`${join(parent, 'remote.git')}/`), 'the bare remote, which holds history');
   assert.ok(!offLimits.some((path) => path.startsWith(scratch)), 'the scratch folder stays readable');
+  // The scratch folder lives elsewhere here, so only the repository can be the reason the folder is spared.
+  const holdsRepo = computeOffLimits({ repoRoot: root, runsRoot: join(parent, 'no-such-runs'), scratch: tempDir('elsewhere'), ignoredInRepo: [], agentPaths: [parent] });
+  assert.ok(!holdsRepo.some((path) => root.startsWith(path.replace(/\/$/, ''))), 'never the folder the audited repository lives in');
+});
+
+test('a barred folder that holds the repository still bars everything in it but the way down', () => {
+  // An agent's temp folder with the app cloned two levels inside it, beside another session's files.
+  const agentRoot = tempDir('agent-root');
+  const app = join(agentRoot, 'session-a', 'scratchpad', 'app');
+  for (const dir of [app, join(agentRoot, 'session-a', 'tasks'), join(agentRoot, 'session-b')]) mkdirSync(dir, { recursive: true });
+  const offLimits = computeOffLimits({ repoRoot: app, runsRoot: join(agentRoot, 'no-such-runs'), scratch: tempDir('elsewhere'), ignoredInRepo: [], agentPaths: [agentRoot] });
+  assert.ok(offLimits.includes(`${join(agentRoot, 'session-b')}/`), 'another session beside the way down');
+  assert.ok(offLimits.includes(`${join(agentRoot, 'session-a', 'tasks')}/`), 'a cousin of the repository, which no sibling rule covers');
+  for (const open of [agentRoot, join(agentRoot, 'session-a'), join(agentRoot, 'session-a', 'scratchpad'), app]) assert.ok(!offLimits.includes(`${open}/`), `the way down stays open: ${open}`);
 });

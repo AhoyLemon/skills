@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { buildInvocation, initProblems } from '../skills/actua11y/_backends/_claude-code.ts';
+import { buildInvocation, claudeCode, claudeTempOffLimits, initProblems, projectSlug } from '../skills/actua11y/_backends/_claude-code.ts';
 import { parseStream } from '../skills/actua11y/_backends/_claude-stream.ts';
 import type { InitInfo, RoleSpec } from '../skills/actua11y/_lib/_backend.ts';
 import { ALL_DENIES } from '../skills/actua11y/_lib/_rules.ts';
+import { tempDir } from './_fixtures.ts';
 
 const finder = (): RoleSpec => ({
   role: 'finder',
@@ -64,12 +67,46 @@ test('a read-only finder can write only in its scratch folder, and the deny rule
   const { args } = buildInvocation(finder(), parentEnv);
   const deny = args.slice(args.indexOf('--disallowedTools') + 1, args.lastIndexOf('--'));
   const allow = args.slice(args.indexOf('--allowedTools') + 1, args.indexOf('--disallowedTools'));
-  assert.deepEqual(allow, ['Read', 'Glob', 'Grep', 'Bash', 'Edit(//tmp/actua11y-run-abc/**)']);
+  // Read rules govern Glob and Grep too, so scoping Read fences all three. A bare Read, Glob or Grep would let one search cover the whole disk.
+  for (const rule of ['Read(//work/moth-club/**)', 'Read(//tmp/actua11y-run-abc/**)', 'Bash', 'Edit(//tmp/actua11y-run-abc/**)']) assert.ok(allow.includes(rule), rule);
+  for (const bare of ['Read', 'Glob', 'Grep']) assert.ok(!allow.includes(bare), `no bare ${bare}`);
+  assert.ok(allow.every((rule) => !rule.startsWith('Read(') || /^Read\(\/\/(work\/moth-club|tmp\/actua11y-run-abc|.*\/claude-\d+\/-work-moth-club)\/\*\*\)$/.test(rule)), `only the repository, the scratch folder and the session's own task folder: ${allow.join(' ')}`);
   for (const rule of ['Bash(git *)', 'Bash(gh *)', 'Bash(npm *)', 'Bash(npx *)', 'WebSearch', 'WebFetch', 'Agent', 'NotebookEdit', 'Edit(//work/moth-club/**)']) assert.ok(deny.includes(rule), rule);
   assert.ok(deny.includes('Read(//work/moth-club/.git/**)'));
   assert.ok(deny.includes('Read(//work/other-project/**)'));
   assert.ok(deny.includes('Read(//home/me/.npmrc)'));
   assert.equal(valueAfter(args, '--add-dir'), '/tmp/actua11y-run-abc');
+});
+
+test('Claude Code\'s temp folder is barred except for the folder the finder\'s own session is about to create', () => {
+  const root = tempDir('claude-temp');
+  const own = projectSlug('/work/moth-club');
+  assert.equal(own, '-work-moth-club');
+  mkdirSync(join(root, '-work-answers', 'old-session'), { recursive: true });
+  mkdirSync(join(root, own, 'orchestrator-session'), { recursive: true });
+  const barred = claudeTempOffLimits(root, '/work/moth-club');
+  assert.ok(barred.includes(join(root, '-work-answers')), 'another project\'s sessions');
+  assert.ok(barred.includes(join(root, own, 'orchestrator-session')), 'a session already running in this project, the orchestrator\'s');
+  assert.ok(!barred.includes(join(root, own)), 'never the project folder the finder\'s own session is created in');
+  assert.deepEqual(claudeTempOffLimits(join(root, 'missing'), '/work/moth-club'), []);
+});
+
+test('an init event spaced differently is still checked, and the session stopped before it can answer', async () => {
+  // A stand-in claude: its init declares an MCP server, in JSON with a space after every colon, then it answers three seconds later unless stopped.
+  const bin = tempDir('fake-claude');
+  const init = JSON.stringify({ type: 'system', subtype: 'init', session_id: 's', model: 'claude-opus-5-5', permissionMode: 'dontAsk', tools: ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'], mcp_servers: [{ name: 'slack' }], plugins: [], skills: [] }).replace(/":/g, '": ');
+  const answer = JSON.stringify({ type: 'result', subtype: 'success', session_id: 's', result: 'A REPORT', num_turns: 1, total_cost_usd: 0.01 });
+  writeFileSync(join(bin, 'claude'), `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(`${init}\n`)});\nsetTimeout(() => process.stdout.write(${JSON.stringify(`${answer}\n`)}), 3000);\n`);
+  chmodSync(join(bin, 'claude'), 0o755);
+  const path = process.env['PATH'];
+  process.env['PATH'] = `${bin}:${path ?? ''}`;
+  try {
+    const session = await claudeCode.start({ ...finder(), cwd: bin, transcriptPath: join(bin, 'transcript.jsonl'), timeoutMs: 20_000 });
+    assert.match(session.errors.join('\n'), /stopped at start: MCP servers loaded: slack/);
+    assert.deepEqual(session.finalTexts, [], 'stopped before it could answer');
+  } finally {
+    process.env['PATH'] = path;
+  }
 });
 
 test('the dry run gets no tools at all', () => {

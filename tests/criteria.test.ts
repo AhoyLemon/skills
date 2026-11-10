@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
+import { criteriaTableFor } from '../skills/actua11y/_lib/_cmd-run.ts';
 import { axeTagsFor, criteriaAt, criteriaTable, criterionByNum } from '../skills/actua11y/_lib/_criteria.ts';
 
 test('the table holds exactly WCAG 2.2: 86 criteria, 31 A, 24 AA, 31 AAA', () => {
@@ -27,6 +28,16 @@ test('the levels models have got wrong before come from the table', () => {
   assert.equal(criterionByNum('2.4.7')?.level, 'AA');
   assert.equal(criterionByNum('1.3.4')?.level, 'AA');
   assert.equal(criteriaAt('A').some((c) => c.num === '2.4.7' || c.num === '1.3.4'), false);
+});
+
+test('a criterion whose title ends "except for the following:" keeps the exceptions, in the table and in the brief', () => {
+  const contrast = criterionByNum('1.4.3');
+  assert.match(contrast?.title ?? '', /except for the following:$/);
+  assert.ok(contrast?.details.some((detail) => /^Large Text: .*at least 3:1/.test(detail)), 'the 3:1 exception for large text');
+  assert.ok(criterionByNum('2.5.8')?.details.some((detail) => detail.startsWith('Spacing:')), 'the spacing exception for target size');
+  const row = criteriaTableFor('AA').split('\n').find((line) => line.startsWith('| 1.4.3 '));
+  assert.match(row ?? '', /Large Text: .*at least 3:1/);
+  assert.match(row ?? '', /Logotypes:/);
 });
 
 test('axe tags accumulate with the level', () => {
