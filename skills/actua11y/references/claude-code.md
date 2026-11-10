@@ -37,6 +37,8 @@ The brief states the rule in general terms (nothing outside the repository and t
 
 `runner.ts dry-run` starts a session isolated exactly like the finder, with no tools, and asks it to name every instruction file, memory, skill, plugin, MCP server and hook it loaded, and what it knows about the repository. The runner checks the init event mechanically, and the orchestrator reads the answer. In practice a clean one costs about a cent on Sonnet and a few cents on Opus. A finder run refuses to start without a clean dry run for the same repository and model from the last six hours.
 
+The dry run is also where an expired sign-in shows up. The runner starts sessions with the `claude` command's own login, which lapses on its own schedule, apart from whatever session is running intake. The dry run then fails at no cost with `api_error: Failed to authenticate`. Ask the user to run `claude auth login` (or `claude setup-token` for a long-lived token), then run the dry run again. Never sign in for them.
+
 ## What it can't promise
 
 - **The session knows who's signed in.** With a subscription login, Claude Code tells it the account's email. That's the login, not the project.

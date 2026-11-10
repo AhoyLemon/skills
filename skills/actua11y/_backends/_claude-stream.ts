@@ -69,11 +69,16 @@ export const parseStream = (lines: string[]): StreamSummary => {
     }
     if (event['type'] !== 'result') continue;
     summary.sessionId = String(event['session_id'] ?? summary.sessionId);
-    if (typeof event['result'] === 'string') summary.finalTexts.push(event['result']);
+    const failed = event['is_error'] === true || (typeof event['subtype'] === 'string' && event['subtype'] !== 'success');
+    const text = typeof event['result'] === 'string' ? event['result'] : '';
+    if (!failed && text !== '') summary.finalTexts.push(text);
     summary.usage = usageFrom(event);
     summary.permissionDenials = Array.isArray(event['permission_denials']) ? event['permission_denials'].length : summary.permissionDenials;
-    if (event['is_error'] === true || (typeof event['subtype'] === 'string' && event['subtype'] !== 'success')) {
-      summary.errors.push(`result ${String(event['subtype'])}${strings(event['errors']).length > 0 ? `: ${strings(event['errors']).join('; ')}` : ''}`);
+    if (failed) {
+      // An API failure (an expired sign-in, say) arrives as subtype success with is_error set, so terminal_reason names it and result says why.
+      const why = event['subtype'] === 'success' && typeof event['terminal_reason'] === 'string' ? event['terminal_reason'] : String(event['subtype']);
+      const detail = [...strings(event['errors']), ...(text !== '' ? [text] : [])];
+      summary.errors.push(`${why}${detail.length > 0 ? `: ${detail.join('; ')}` : ''}`);
     }
   }
   return summary;

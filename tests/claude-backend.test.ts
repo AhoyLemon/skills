@@ -128,3 +128,10 @@ test('every result event counts, and junk lines are skipped', () => {
   const failed = parseStream([JSON.stringify({ type: 'result', subtype: 'error_max_budget_usd', is_error: true, errors: ['over budget'] })]);
   assert.match(failed.errors.join(), /error_max_budget_usd: over budget/);
 });
+
+test('a session that failed reports why as an error, never as its answer', () => {
+  // The shape Claude Code 2.1.319 sends when its sign-in has expired: subtype success, but is_error, with the reason in result.
+  const expired = parseStream([JSON.stringify({ type: 'result', subtype: 'success', is_error: true, terminal_reason: 'api_error', num_turns: 1, total_cost_usd: 0, result: 'Failed to authenticate: this login reached its time limit' })]);
+  assert.deepEqual(expired.finalTexts, []);
+  assert.deepEqual(expired.errors, ['api_error: Failed to authenticate: this login reached its time limit']);
+});

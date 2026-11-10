@@ -37,6 +37,7 @@ Where machines go wrong:
 
 - **Present isn't meaningful.** You can prove an `alt` exists. Whether it says what the image is *for*, not just what it is, is a check. The same goes for labels, headings, link text, page titles and error messages: existence is evidence, quality is a person's call.
 - **The engine matters.** You drive one engine. Keyboard and focus behaviour can differ in WebKit and Firefox, so behaviour across engines is a check, never evidence.
+- **Behaviour is done, not read.** A ✅ on keyboard, focus or input behaviour means you did it in the running page, and your evidence says how. Finding nothing in the source is a check.
 - **Tab order is reading order on a phone.** VoiceOver's swipe, Switch Control and a Bluetooth keyboard all follow it, so a mobile-first site doesn't get to discount 2.4.3 Focus Order or 1.3.2 Meaningful Sequence.
 - **Levels come from the table below, never from memory.** If a criterion isn't in the table, it isn't in this audit.
 - **Contrast is measured, not eyeballed.** Read computed colours from the running page. Text over images or gradients can't be settled from CSS alone, so measure what you can and make the rest a check.

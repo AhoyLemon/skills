@@ -61,9 +61,13 @@ export const cmdDryRun = async (options: Options, backend: Backend): Promise<num
   if (problems.length === 0) okLine('nothing loaded beyond what actua11y expects');
   for (const problem of problems) failLine(problem);
   const answer = session.finalTexts.at(-1)?.trim() ?? '';
-  heading('What the session says, in its own words');
-  out(answer === '' ? '  (no answer)' : answer.split('\n').map((line) => `  ${line}`).join('\n'));
-  hintLine('Compare that with what you expect: no instruction files, memory, skills, plugins, MCP servers or hooks, and nothing about the repository beyond its path. If it names anything else, stop.');
+  if (answer === '' && problems.length > 0) {
+    hintLine('The session stopped before it answered, so there is nothing to compare. Fix the problem above, then run the dry run again.');
+  } else {
+    heading('What the session says, in its own words');
+    out(answer === '' ? '  (no answer)' : answer.split('\n').map((line) => `  ${line}`).join('\n'));
+    hintLine('Compare that with what you expect: no instruction files, memory, skills, plugins, MCP servers or hooks, and nothing about the repository beyond its path. If it names anything else, stop.');
+  }
   out();
   out(`Cost: ${formatUsage(session.usage)}. Transcript: ${spec.transcriptPath}`);
   saveDryRun(repo, { at, backend: backend.name, model: options.model, effort: options.effort, clean: problems.length === 0, problems, answer, usage: session.usage, transcriptPath: spec.transcriptPath });
