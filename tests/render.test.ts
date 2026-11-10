@@ -52,6 +52,16 @@ test('a page the finder names can\'t break out of its code span to ping anyone',
   assert.ok(agent.body.includes('`` http://127.0.0.1:4173/`@everyone` ``'));
 });
 
+test('both issues say what the fences caught, and whose word the pages list is', () => {
+  const facts = { ...makeFacts('A'), fences: { denials: 2, mentions: 1 } };
+  const agent = renderAgentIssue(validReport('A'), facts, { personUrl: 'https://github.com/AhoyLemon/skills/issues/2' });
+  const person = renderPersonIssue(validReport('A'), facts, { agentUrl: 'https://github.com/AhoyLemon/skills/issues/1' });
+  for (const body of [agent.body, person.body]) {
+    assert.match(body, /\*\*Fences:\*\* the rules refused 2 tool calls, and 1 tool call named a path the finder must never read/);
+    assert.match(body, /\*\*Pages, as the finder reports them:\*\*/);
+  }
+});
+
 test('a long pages list is cut short in the issue, so a paid run can still be filed', () => {
   const pages = Array.from({ length: 1500 }, (_, i) => `http://127.0.0.1:4173/page-${i}.html`);
   const report = { ...validReport('AA'), used: { tools: ['Read'], pages } };

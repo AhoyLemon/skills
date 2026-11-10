@@ -32,6 +32,7 @@ const factsFrom = (meta: RunMeta): RunFacts => {
     effort: meta.effort,
     usage: meta.finder.usage,
     dryRunUsage: meta.dryRun?.usage ?? null,
+    fences: meta.finder ? { denials: meta.finder.permissionDenials ?? 0, mentions: (meta.finder.offLimitsMentions ?? []).reduce((sum, mention) => sum + mention.count, 0) } : null,
     finishedAt: meta.finishedAt ?? meta.createdAt,
   };
 };

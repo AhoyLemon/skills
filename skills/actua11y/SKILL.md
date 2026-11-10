@@ -81,7 +81,7 @@ This takes a while. Run it in the background if you can, and tell the user rough
 
 This files both issues, cross-links them and attaches the raw report. `--preview` writes the bodies locally instead, if the user wants to see them first. If filing stops partway, run the same command again, and it picks up where it stopped.
 
-It refuses a run that changed tracked or untracked files, and there's no way past that: the finder must never write to the app. If only new gitignored paths appeared, show them to the user. If they confirm each one came from their own dev server, pass `--allow-ignored <path>` for each to `file`.
+It refuses a run that changed tracked or untracked files, and there's no way past that: the finder must never write to the app. If it says tool calls named paths the finder must never read, show the user those lines and the transcript path before filing, and file only with their OK. If only new gitignored paths appeared, show them to the user. If they confirm each one came from their own dev server, pass `--allow-ignored <path>` for each to `file`.
 
 ### 5. Stop
 

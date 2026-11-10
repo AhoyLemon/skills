@@ -1,7 +1,7 @@
 // What a role may not touch, worked out from what's on disk rather than typed by hand, and the same list in words for the brief so the rules and the brief can't drift apart.
 import { existsSync, readdirSync, realpathSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, relative } from 'node:path';
 
 import type { DenyCategory, RoleSpec } from './_backend.ts';
 
@@ -56,6 +56,32 @@ export const computeOffLimits = (input: OffLimitsInput): string[] => {
   for (const path of input.agentPaths) add(path);
   return [...paths].sort();
 };
+
+export interface PathMention {
+  path: string;
+  count: number;
+}
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// Every form a tool call could name an off-limits path by: as listed, without macOS's /private prefix, from the home folder as ~, and relative from the repository when it lies outside it. Paths inside the repository (.git, node_modules) count only in full, since a finder rightly names them to exclude them.
+const formsOf = (path: string, repoRoot: string): string[] => {
+  const forms = new Set([path]);
+  if (path.startsWith('/private/')) forms.add(path.slice('/private'.length));
+  const home = homedir();
+  for (const form of [...forms]) if (form.startsWith(`${home}/`)) forms.add(`~${form.slice(home.length)}`);
+  const fromRepo = relative(repoRoot, path);
+  if (fromRepo.startsWith('..')) forms.add(fromRepo);
+  return [...forms];
+};
+
+// Bash isn't fenced by the read rules, so this is the check on it: how many tool calls named each off-limits path. A name has to end at a path boundary, so one project's name can't match another that starts the same way.
+export const offLimitsMentions = (inputs: string[], offLimits: string[], repoRoot: string): PathMention[] =>
+  offLimits.flatMap((entry) => {
+    const pattern = new RegExp(`(?:${formsOf(entry.replace(/\/$/, ''), repoRoot).map(escapeRegExp).join('|')})(?=[/"'\\s\\\\]|$)`);
+    const count = inputs.filter((input) => pattern.test(input)).length;
+    return count > 0 ? [{ path: entry, count }] : [];
+  });
 
 const DENY_WORDS: Record<DenyCategory, string> = {
   git: 'No git commands at all: no history, no log, show, blame or diff, and no commits. Read the working tree with your file tools.',

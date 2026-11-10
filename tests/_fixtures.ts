@@ -69,5 +69,6 @@ export const makeFacts = (level: Level = 'A'): RunFacts => ({
   effort: 'high',
   usage: { ...emptyUsage(), costUsd: 3.21, turns: 42, durationMs: 1_098_000, inputTokens: 1000, outputTokens: 20_000, cacheReadTokens: 900_000 },
   dryRunUsage: { ...emptyUsage(), costUsd: 0.06, turns: 1, durationMs: 6000 },
+  fences: { denials: 0, mentions: 0 },
   finishedAt: '2026-11-09T12:30:00Z',
 });

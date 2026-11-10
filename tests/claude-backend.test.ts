@@ -163,6 +163,8 @@ test('every result event counts, and junk lines are skipped', () => {
   assert.equal(summary.permissionDenials, 2);
   assert.deepEqual(summary.init?.plugins, ['cc-plugin-telemetry@builtin']);
   assert.match(summary.init?.login ?? '', /no API key/, 'a subscription sign-in');
+  const calls = parseStream([JSON.stringify({ type: 'assistant', message: { content: [{ type: 'text', text: 'Looking' }, { type: 'tool_use', name: 'Bash', input: { command: 'cat ../answers/key.md' } }] } })]);
+  assert.deepEqual(calls.toolInputs, ['{"command":"cat ../answers/key.md"}'], 'every tool call\'s input, for the off-limits scan');
   const keyed = parseStream([JSON.stringify({ type: 'system', subtype: 'init', session_id: 's2', apiKeySource: 'ANTHROPIC_API_KEY' })]);
   assert.match(keyed.init?.login ?? '', /ANTHROPIC_API_KEY, billed to that API account/, 'an API key the run will bill, said out loud');
   assert.deepEqual(summary.errors, []);

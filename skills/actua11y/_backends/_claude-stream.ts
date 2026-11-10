@@ -8,6 +8,7 @@ export interface StreamSummary {
   sessionId: string;
   permissionDenials: number;
   errors: string[];
+  toolInputs: string[];
 }
 
 type Json = Record<string, unknown>;
@@ -57,7 +58,7 @@ const usageFrom = (event: Json): Usage => {
 };
 
 export const parseStream = (lines: string[]): StreamSummary => {
-  const summary: StreamSummary = { init: null, finalTexts: [], usage: emptyUsage(), sessionId: '', permissionDenials: 0, errors: [] };
+  const summary: StreamSummary = { init: null, finalTexts: [], usage: emptyUsage(), sessionId: '', permissionDenials: 0, errors: [], toolInputs: [] };
   for (const line of lines) {
     if (line.trim() === '') continue;
     let event: unknown;
@@ -70,6 +71,10 @@ export const parseStream = (lines: string[]): StreamSummary => {
     if (event['type'] === 'system' && event['subtype'] === 'init') {
       summary.init = initFrom(event);
       summary.sessionId = summary.init.sessionId;
+    }
+    const message = event['message'];
+    if (event['type'] === 'assistant' && isRecord(message) && Array.isArray(message['content'])) {
+      for (const block of message['content']) if (isRecord(block) && block['type'] === 'tool_use') summary.toolInputs.push(JSON.stringify(block['input'] ?? {}));
     }
     if (event['type'] !== 'result') continue;
     summary.sessionId = String(event['session_id'] ?? summary.sessionId);

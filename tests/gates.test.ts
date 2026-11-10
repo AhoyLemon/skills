@@ -56,7 +56,7 @@ const meta = (finder: Partial<NonNullable<RunMeta['finder']>> = {}): RunMeta => 
   maxTurns: 300,
   maxBudgetUsd: 20,
   dryRun: null,
-  finder: { sessionId: 's', attempts: 1, usage: emptyUsage(), transcriptPath: '/tmp/t.jsonl', errors: [], permissionDenials: 0, strays: [], ignoredStrays: [], valid: true, reportSha256: reportHash(REPORT), ...finder },
+  finder: { sessionId: 's', attempts: 1, usage: emptyUsage(), transcriptPath: '/tmp/t.jsonl', errors: [], permissionDenials: 0, offLimitsMentions: [], strays: [], ignoredStrays: [], valid: true, reportSha256: reportHash(REPORT), ...finder },
 });
 
 test('filing refuses an invalid run, an edited report, a run that wrote to the app, and unexplained gitignored paths', () => {

@@ -7,6 +7,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import type { Usage } from './_backend.ts';
 import type { Level } from './_criteria.ts';
 import type { RepoSlug } from './_git.ts';
+import type { PathMention } from './_rules.ts';
 
 export const reportHash = (text: string): string => createHash('sha256').update(text).digest('hex');
 
@@ -29,6 +30,7 @@ export interface FinderRecord {
   transcriptPath: string;
   errors: string[];
   permissionDenials: number;
+  offLimitsMentions: PathMention[];
   strays: string[];
   ignoredStrays: string[];
   valid: boolean;

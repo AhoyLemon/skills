@@ -33,7 +33,7 @@ The brief states the rule in general terms (nothing outside the repository and t
 
 **Every session's first event is checked.** The init event names the model, tools, MCP servers, skills and plugins the session actually loaded. If anything is unexpected (an MCP server, a skill, a non-built-in plugin, a tool it shouldn't have, the wrong model or permission mode), the backend kills the session on the spot, and nothing it reported is ever filed. A session that never sends one is judged the same way once it ends: no retry, and nothing filed.
 
-**Denied tool calls are counted.** When the finder tries something its rules deny, the run's summary says how many times and points at the transcript, so a session testing its fences doesn't go unnoticed.
+**Denied tool calls are counted, and every tool call is checked.** When the finder tries something its rules deny, the run's summary says how many times and points at the transcript. Bash isn't fenced by the read rules, so after the run every tool call's input is also checked against the off-limits list: the exact path, without macOS's `/private` prefix, from home as `~`, or relative from the repository (`../answers`). A name only counts at a path boundary, and paths inside the repository (`.git`, `node_modules`) only in full, since a finder rightly names them to exclude them. Any hit is listed in the summary, and both issues say what the fences caught.
 
 **Every result event counts.** A session can wake for more turns after its job, and each wake ends in a result of its own. The runner reads them all, takes the report from the last one that holds a valid report, and takes cost from each process's last result. A resumed session reports its own cost, so a correction round adds to the total.
 

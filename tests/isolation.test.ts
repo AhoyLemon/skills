@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
 import type { Backend } from '../skills/actua11y/_lib/_backend.ts';
 import { treeChanges, treeState } from '../skills/actua11y/_lib/_git.ts';
 import { nodeIsNewEnough, runPreflight } from '../skills/actua11y/_lib/_preflight.ts';
-import { computeOffLimits } from '../skills/actua11y/_lib/_rules.ts';
+import { computeOffLimits, offLimitsMentions } from '../skills/actua11y/_lib/_rules.ts';
 import { tempDir } from './_fixtures.ts';
 
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -121,6 +122,27 @@ test('off-limits paths come from disk, but never bar the run from its own scratc
   // The scratch folder lives elsewhere here, so only the repository can be the reason the folder is spared.
   const holdsRepo = computeOffLimits({ repoRoot: root, runsRoot: join(parent, 'no-such-runs'), scratch: tempDir('elsewhere'), ignoredInRepo: [], agentPaths: [parent] });
   assert.ok(!holdsRepo.some((path) => root.startsWith(path.replace(/\/$/, ''))), 'never the folder the audited repository lives in');
+});
+
+test('a tool call that names an off-limits path is counted, in any form it could name it, and only at a path boundary', () => {
+  const home = homedir();
+  const repo = '/work/projects/moth-club';
+  const offLimits = ['/work/projects/answers/', '/private/tmp/claude-501/-work-other/', `${home}/.ssh/`, '/work/projects/moth-club/.git/', '/work/projects/moth-club/node_modules/'];
+  const inputs = [
+    JSON.stringify({ command: 'cat /work/projects/answers/key.md' }),
+    JSON.stringify({ command: 'ls ../answers' }),
+    JSON.stringify({ command: 'ls /tmp/claude-501/-work-other' }),
+    JSON.stringify({ command: 'cat ~/.ssh/id_ed25519' }),
+    JSON.stringify({ command: 'cat /work/projects/answers-public/readme.md' }),
+    JSON.stringify({ command: 'grep -r --exclude-dir=node_modules --exclude-dir=.git alt .' }),
+    JSON.stringify({ file_path: '/work/projects/moth-club/.git/config' }),
+  ];
+  assert.deepEqual(offLimitsMentions(inputs, offLimits, repo), [
+    { path: '/work/projects/answers/', count: 2 },
+    { path: '/private/tmp/claude-501/-work-other/', count: 1 },
+    { path: `${home}/.ssh/`, count: 1 },
+    { path: '/work/projects/moth-club/.git/', count: 1 },
+  ]);
 });
 
 test('a barred folder that holds the repository still bars everything in it but the way down', () => {

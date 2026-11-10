@@ -56,6 +56,8 @@ export interface SessionResult {
   timedOut: boolean;
   errors: string[];
   permissionDenials: number;
+  // The raw input of every tool call the session made, so the runner can check them against the off-limits paths.
+  toolInputs: string[];
   transcriptPath: string;
 }
 

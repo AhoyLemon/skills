@@ -215,7 +215,7 @@ const runInvocation = (invocation: Invocation, spec: RoleSpec): Promise<SessionR
       const errors = [...aborts, ...summary.errors];
       if (timedOut) errors.push(`timed out after ${Math.round(spec.timeoutMs / 60_000)} minutes`);
       if (code !== 0 && code !== null && errors.length === 0) errors.push(`claude exited with code ${code}${stderr.trim() ? `: ${stderr.trim().split('\n').slice(-3).join(' ')}` : ''}`);
-      resolve({ sessionId: summary.sessionId, finalTexts: summary.finalTexts, init: summary.init, usage: summary.usage, exitCode: code, timedOut, errors, permissionDenials: summary.permissionDenials, transcriptPath: spec.transcriptPath });
+      resolve({ sessionId: summary.sessionId, finalTexts: summary.finalTexts, init: summary.init, usage: summary.usage, exitCode: code, timedOut, errors, permissionDenials: summary.permissionDenials, toolInputs: summary.toolInputs, transcriptPath: spec.transcriptPath });
     });
     // A session that exits before reading its brief closes the pipe. Its exit code and stderr already say why, so the pipe error adds nothing and mustn't crash the runner.
     child.stdin.on('error', () => undefined);

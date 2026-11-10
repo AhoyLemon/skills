@@ -13,7 +13,7 @@ import { currentBranch, headCommit, ignoredIn, trackedFiles, treeChanges, treeSt
 import { printChecks, runPreflight } from './_preflight.ts';
 import { formatUsage, plural } from './_render.ts';
 import { extractReportJson, REPORT_SHAPE, tallyOf, validateReport, type ValidationContext, type ValidationResult } from './_report.ts';
-import { ALL_DENIES, computeOffLimits, rulesInWords } from './_rules.ts';
+import { ALL_DENIES, computeOffLimits, offLimitsMentions, rulesInWords } from './_rules.ts';
 import { latestDryRun, newRunId, reportHash, runDir, stateRoot, writeJson, type DryRunRecord, type RunMeta } from './_runs.ts';
 import { onExit } from './_exec.ts';
 import { installKit, makeScratch, probeBrowser, removeDir } from './_scratch.ts';
@@ -213,6 +213,7 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
     let denials = session.permissionDenials;
     let unreported = !reportedUsage(session);
     const errors = [...session.errors];
+    const toolInputs = [...session.toolInputs];
     let attempt = reportFrom(session, context);
     const stoppedAtStart = session.errors.some((error) => error.startsWith('stopped at start'));
     // Retries share the caps the user agreed to. Each one gets only what's left, and none starts without a useful amount left.
@@ -230,6 +231,7 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
       denials += session.permissionDenials;
       unreported ||= !reportedUsage(session);
       errors.push(...session.errors);
+      toolInputs.push(...session.toolInputs);
       attempts += 1;
       attempt = reportFrom(session, context);
     }
@@ -238,8 +240,9 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
     const validation: ValidationResult = untrusted.length > 0 ? { ok: false, errors: untrusted } : attempt.validation;
 
     const changes = treeChanges(before, treeState(root), options.allowIgnored);
+    const mentions = offLimitsMentions(toolInputs, spec.offLimits, root);
     meta.finishedAt = new Date().toISOString();
-    meta.finder = { sessionId: session.sessionId, attempts, usage, transcriptPath: spec.transcriptPath, errors, permissionDenials: denials, strays: changes.tree, ignoredStrays: changes.ignored, valid: validation.ok, reportSha256: null };
+    meta.finder = { sessionId: session.sessionId, attempts, usage, transcriptPath: spec.transcriptPath, errors, permissionDenials: denials, offLimitsMentions: mentions, strays: changes.tree, ignoredStrays: changes.ignored, valid: validation.ok, reportSha256: null };
     writeJson(join(dir, 'meta.json'), meta);
     const strays = [...changes.tree, ...changes.ignored.map((path) => `new or gone gitignored path: ${path}`)];
 
@@ -247,6 +250,10 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
     for (const error of errors) warnLine(error);
     if (unreported) warnLine('a session ended without reporting its cost, so the cost below is too low');
     if (denials > 0) warnLine(`the finder tried ${plural(denials, 'thing', 'things')} its rules deny. The transcript shows what: ${spec.transcriptPath}`);
+    if (mentions.length > 0) {
+      failLine('Tool calls named paths the finder must never read. A shell can read past the rules, so show the user these and the transcript before filing:');
+      for (const mention of mentions) hintLine(`${mention.path} (${plural(mention.count, 'tool call', 'tool calls')})`);
+    }
     if (changes.tree.length > 0) {
       failLine('The finder changed tracked or untracked files in the repository, which it must never do:');
       for (const stray of changes.tree) hintLine(stray);

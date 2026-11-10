@@ -22,6 +22,8 @@ export interface RunFacts {
   effort: string;
   usage: Usage;
   dryRunUsage: Usage | null;
+  // What the fences caught: tool calls the rules refused, and tool calls that named an off-limits path anyway.
+  fences: { denials: number; mentions: number } | null;
   finishedAt: string;
 }
 
@@ -89,9 +91,10 @@ const usedSection = (report: FinderReport, facts: RunFacts): string => {
     '',
     `- **Browser:** ${facts.browser ? `${facts.browser.channel} ${facts.browser.version}, headless, recorded by the runner. One engine checked, so behaviour in other engines is a person's call` : 'none'}`,
     `- **axe:** ${facts.axe ? `axe-core ${facts.axe.version}, tags ${facts.axe.tags.map((tag) => `\`${tag}\``).join(' ')}. An axe result covers one rule, never a whole criterion, and axe covers only part of WCAG` : 'not run'}`,
-    `- **Pages:** ${pagesList(report.used.pages)} (base ${facts.baseUrl})`,
+    `- **Pages, as the finder reports them:** ${pagesList(report.used.pages)} (base ${facts.baseUrl})`,
     `- **Tools:** ${report.used.tools.map(safeText).join(', ')}`,
     `- **Session:** a fresh, read-only ${facts.backend} session with none of your settings, memory or plugins. Model \`${facts.model}\`, effort \`${facts.effort}\``,
+    ...(facts.fences ? [`- **Fences:** the rules refused ${plural(facts.fences.denials, 'tool call', 'tool calls')}, and ${plural(facts.fences.mentions, 'tool call', 'tool calls')} named a path the finder must never read`] : []),
     `- **Cost:** finder ${formatUsage(facts.usage)}${facts.dryRunUsage ? `, dry run ${formatUsage(facts.dryRunUsage)}` : ''}. Costs are the agent's own estimates`,
     `- **Run:** \`${facts.runId}\`, finished ${facts.finishedAt}`,
   ];
