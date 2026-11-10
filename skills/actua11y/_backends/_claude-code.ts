@@ -1,6 +1,7 @@
 // Starts actua11y's sessions as headless Claude Code runs: an emptied environment, none of the user's settings, memory, skills, plugins, MCP servers or hooks, and deny rules backing every word of the brief.
 import { spawn } from 'node:child_process';
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs';
+import { userInfo } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import type { Backend, BackendCheck, DenyCategory, InitInfo, RoleSpec, SessionResult } from '../_lib/_backend.ts';
@@ -182,12 +183,16 @@ const runInvocation = (invocation: Invocation, spec: RoleSpec): Promise<SessionR
       clearTimeout(timer);
       release(false);
       if (pending.trim() !== '') takeLine(pending);
+      // A session that never announced what it loaded can't be trusted with a retry either.
+      if (!checkedInit) aborts.push(...initProblems(null, spec).map((problem) => `stopped at start: ${problem}`));
       const summary = parseStream(lines);
       const errors = [...aborts, ...summary.errors];
       if (timedOut) errors.push(`timed out after ${Math.round(spec.timeoutMs / 60_000)} minutes`);
       if (code !== 0 && code !== null && errors.length === 0) errors.push(`claude exited with code ${code}${stderr.trim() ? `: ${stderr.trim().split('\n').slice(-3).join(' ')}` : ''}`);
       resolve({ sessionId: summary.sessionId, finalTexts: summary.finalTexts, init: summary.init, usage: summary.usage, exitCode: code, timedOut, errors, permissionDenials: summary.permissionDenials, transcriptPath: spec.transcriptPath });
     });
+    // A session that exits before reading its brief closes the pipe. Its exit code and stderr already say why, so the pipe error adds nothing and mustn't crash the runner.
+    child.stdin.on('error', () => undefined);
     child.stdin.end(invocation.stdin);
   });
 
@@ -230,4 +235,9 @@ export const claudeCode: Backend = {
   start: (spec) => runInvocation(buildInvocation(spec, process.env), spec),
   resume: (spec, sessionId, message) => runInvocation(buildInvocation(spec, process.env, { sessionId, message }), spec),
   initProblems,
+  offLimits: () => {
+    // Claude Code keeps every session's scratch files and task output under /tmp/claude-<uid>, this run's orchestrator included.
+    const { uid } = userInfo();
+    return uid >= 0 ? [join('/tmp', `claude-${uid}`)] : [];
+  },
 };

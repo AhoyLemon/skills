@@ -92,6 +92,7 @@ const cleanInit = (): InitInfo => ({
   version: '2.1.319',
   cwd: '/work/moth-club',
   permissionMode: 'dontAsk',
+  login: 'no API key, so your Claude sign-in',
   tools: ['Bash', 'Edit', 'Glob', 'Grep', 'Read', 'Write'],
   mcpServers: [],
   plugins: ['cc-plugin-telemetry@builtin'],
@@ -124,6 +125,9 @@ test('every result event counts, and junk lines are skipped', () => {
   assert.equal(summary.usage.outputTokens, 60);
   assert.equal(summary.permissionDenials, 2);
   assert.deepEqual(summary.init?.plugins, ['cc-plugin-telemetry@builtin']);
+  assert.match(summary.init?.login ?? '', /no API key/, 'a subscription sign-in');
+  const keyed = parseStream([JSON.stringify({ type: 'system', subtype: 'init', session_id: 's2', apiKeySource: 'ANTHROPIC_API_KEY' })]);
+  assert.match(keyed.init?.login ?? '', /ANTHROPIC_API_KEY, billed to that API account/, 'an API key the run will bill, said out loud');
   assert.deepEqual(summary.errors, []);
   const failed = parseStream([JSON.stringify({ type: 'result', subtype: 'error_max_budget_usd', is_error: true, errors: ['over budget'] })]);
   assert.match(failed.errors.join(), /error_max_budget_usd: over budget/);

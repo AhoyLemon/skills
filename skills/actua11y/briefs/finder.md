@@ -42,7 +42,7 @@ Where machines go wrong:
 - **Levels come from the table below, never from memory.** If a criterion isn't in the table, it isn't in this audit.
 - **Contrast is measured, not eyeballed.** Read computed colours from the running page. Text over images or gradients can't be settled from CSS alone, so measure what you can and make the rest a check.
 
-Be thorough: every criterion, every page, every interactive thing you can find. You have the time and budget for it.
+Be thorough: every criterion, every page, every interactive thing you can find. You have up to {{CAPS}}. If any of those runs out before your final message, the whole report is lost, so pace yourself and leave room to write it.
 
 ## Rules
 
@@ -61,7 +61,7 @@ The shape, as TypeScript for reference:
 - `used.tools` lists every tool, script and check you used, for example "Read", "Grep", "kit/scan.ts at 390x844", "own script: Tab order on /", "own script: Escape on the menu dialog".
 - `used.pages` lists every page you loaded.
 - Paths are relative to the repository root. Put quoted UI text in backticks.
-- Words you don't use anywhere in the report: pass, passes, passed, passing, compliant, conformant, conforms.
+- Words you don't use anywhere in the report, the tools list included: pass, passes, passed, passing, comply, complies, compliant, compliance, conformant, conforms, conformance, certify, certifies, certified.
 
 ## The criteria ({{CRITERIA_COUNT}})
 

@@ -1,5 +1,5 @@
 // Files a validated run as two cross-linked GitHub issues, or writes them locally with --preview.
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { bold, failLine, heading, okLine, out } from './_ansi.ts';
@@ -11,7 +11,7 @@ import { commentOn, createIssue, editIssueBody, ensureLabel, ghSignedIn, repoInf
 import { slugText } from './_git.ts';
 import { formatUsage, plural, renderAgentIssue, renderPersonIssue, renderRawComments, type RunFacts } from './_render.ts';
 import { tallyOf, type FinderReport } from './_report.ts';
-import { emptyFiled, findRunDir, readJson, writeJson, type FiledRecord, type RunMeta } from './_runs.ts';
+import { emptyFiled, findRunDir, readJson, reportHash, writeJson, type FiledRecord, type RunMeta } from './_runs.ts';
 
 const realGh: GhClient = { ensureLabel, createIssue, editIssueBody, commentOn };
 
@@ -49,17 +49,28 @@ const writePreview = (dir: string, report: FinderReport, facts: RunFacts): void 
   okLine(`Preview written to ${preview}. Nothing was filed.`);
 };
 
+// Every reason not to file a run, checked before anything reaches GitHub.
+export const fileRefusal = (meta: RunMeta, reportText: string | null, allowIgnored: string[]): string | null => {
+  const finder = meta.finder;
+  if (!finder?.valid || reportText === null) return `Run ${meta.runId} has no validated report to file`;
+  if (!finder.reportSha256 || reportHash(reportText) !== finder.reportSha256) return `The report for run ${meta.runId} changed after the finder ran. actua11y files only what the finder reported and the runner checked, so run the finder again rather than editing its report`;
+  if (finder.strays.length > 0) return `Run ${meta.runId} changed tracked or untracked files in the repository while it ran. Show the user, and run the finder again on a clean tree`;
+  const unexplained = finder.ignoredStrays.filter((path) => !allowIgnored.includes(path.replace(/\/$/, '')));
+  if (unexplained.length > 0) return `New gitignored paths appeared while the finder ran: ${unexplained.join(', ')}. Show the user. If they confirm a path came from their own dev server (a cache folder, say), file with --allow-ignored for each one`;
+  return null;
+};
+
 export const cmdFile = (options: Options): number => {
   if (!options.run) throw new Error('Pass --run <run-id>, the id `run finder` printed');
   const dir = findRunDir(options.run);
   if (!dir) throw new Error(`No local record of run ${options.run}`);
   const meta = readJson<RunMeta>(join(dir, 'meta.json'));
   banner(meta.level);
-  if (!meta.finder?.valid || !existsSync(join(dir, 'report.json'))) throw new Error(`Run ${meta.runId} has no validated report to file`);
-  if (meta.finder.strays.length > 0) throw new Error(`Run ${meta.runId} changed tracked or untracked files in the repository while it ran. Show the user, and run the finder again on a clean tree`);
-  const unexplained = meta.finder.ignoredStrays.filter((path) => !options.allowIgnored.includes(path.replace(/\/$/, '')));
-  if (unexplained.length > 0) throw new Error(`New gitignored paths appeared while the finder ran: ${unexplained.join(', ')}. Show the user. If they confirm a path came from their own dev server (a cache folder, say), file with --allow-ignored for each one`);
-  const report = readJson<FinderReport>(join(dir, 'report.json'));
+  const reportPath = join(dir, 'report.json');
+  const reportText = existsSync(reportPath) ? readFileSync(reportPath, 'utf8') : null;
+  const refusal = fileRefusal(meta, reportText, options.allowIgnored);
+  if (refusal !== null || reportText === null || meta.finder === null) throw new Error(refusal ?? `Run ${meta.runId} has no report`);
+  const report = JSON.parse(reportText) as FinderReport;
   const facts = factsFrom(meta);
   const slug = slugText(meta.repo);
 

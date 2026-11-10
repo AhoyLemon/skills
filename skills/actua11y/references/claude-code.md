@@ -25,17 +25,22 @@ How the Claude Code backend (`_backends/_claude-code.ts`) starts a fresh, isolat
 - every sibling of the repository's folder, except one that holds the run's own scratch folder
 - actua11y's own run records
 - any other `actua11y-*` scratch folder
-- credential and agent folders in your home directory (`.claude`, `.agents`, `.codex`, `.config/gh`, `.ssh`, `.aws` and the like)
+- credential and agent folders in your home directory (`.claude`, `.agents`, `.codex`, `.config/gh`, `.ssh`, `.aws` and the like), plus `~/.claude.json`, which lists the path of every project you've opened in Claude Code
+- Claude Code's own temp folder, `/tmp/claude-<uid>/`, which holds every session's scratch files and task output, the orchestrating session's included
 
 The brief states the rule in general terms (nothing outside the repository and the scratch folder, nothing in `.git` or gitignored), generated from the same spec the backend enforces. It deliberately doesn't list the paths, which would hand the session the names of your other projects.
 
-**Every session's first event is checked.** The init event names the model, tools, MCP servers, skills and plugins the session actually loaded. If anything is unexpected (an MCP server, a skill, a non-built-in plugin, a tool it shouldn't have, the wrong model or permission mode), the backend kills the session on the spot.
+**Every session's first event is checked.** The init event names the model, tools, MCP servers, skills and plugins the session actually loaded. If anything is unexpected (an MCP server, a skill, a non-built-in plugin, a tool it shouldn't have, the wrong model or permission mode), the backend kills the session on the spot. A session that never sends one is stopped the same way, and never retried.
+
+**Denied tool calls are counted.** When the finder tries something its rules deny, the run's summary says how many times and points at the transcript, so a session testing its fences doesn't go unnoticed.
 
 **Every result event counts.** A session can wake for more turns after its job, and each wake ends in a result of its own. The runner reads them all, takes the report from the last one that holds a valid report, and takes cost from each process's last result. A resumed session reports its own cost, so a correction round adds to the total.
 
 ## The dry run
 
-`runner.ts dry-run` starts a session isolated exactly like the finder, with no tools, and asks it to name every instruction file, memory, skill, plugin, MCP server and hook it loaded, and what it knows about the repository. The runner checks the init event mechanically, and the orchestrator reads the answer. In practice a clean one costs about a cent on Sonnet and a few cents on Opus. A finder run refuses to start without a clean dry run for the same repository and model from the last six hours.
+`runner.ts dry-run` starts a session isolated exactly like the finder, with no tools, and asks it to name every instruction file, memory, skill, plugin, MCP server and hook it loaded, and what it knows about the repository. The runner checks the init event mechanically, and the orchestrator reads the answer. In practice a clean one costs about a cent on Sonnet and a few cents on Opus. A finder run refuses to start without a clean dry run for the same repository, backend, model and effort from the last six hours.
+
+The dry run also says how the session reaches the model: your Claude sign-in, or an API key it will bill. `ANTHROPIC_API_KEY` passes through to the finder just as it would to `claude -p` in your own shell, so if it's set, the run bills that API account. The dry run names it so it's never a surprise.
 
 The dry run is also where an expired sign-in shows up. The runner starts sessions with the `claude` command's own login, which lapses on its own schedule, apart from whatever session is running intake. The dry run then fails at no cost with `api_error: Failed to authenticate`. Ask the user to run `claude auth login` (or `claude setup-token` for a long-lived token), then run the dry run again. Never sign in for them.
 

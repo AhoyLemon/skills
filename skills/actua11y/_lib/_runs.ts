@@ -2,11 +2,13 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { randomBytes } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 
 import type { Usage } from './_backend.ts';
 import type { Level } from './_criteria.ts';
 import type { RepoSlug } from './_git.ts';
+
+export const reportHash = (text: string): string => createHash('sha256').update(text).digest('hex');
 
 export interface DryRunRecord {
   at: string;
@@ -26,9 +28,11 @@ export interface FinderRecord {
   usage: Usage;
   transcriptPath: string;
   errors: string[];
+  permissionDenials: number;
   strays: string[];
   ignoredStrays: string[];
   valid: boolean;
+  reportSha256: string | null;
 }
 
 export interface RunMeta {

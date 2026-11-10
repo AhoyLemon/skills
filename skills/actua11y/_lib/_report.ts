@@ -58,7 +58,7 @@ export interface ValidationContext {
 export type ValidationResult = { ok: true; report: FinderReport } | { ok: false; errors: string[] };
 
 // Code spans are stripped first, so UI text quoted in backticks (a button labelled `Pass`) doesn't count.
-const CLAIM_WORDS = /\b(pass|passes|passed|passing|compliant|conformant|conforms)\b/i;
+const CLAIM_WORDS = /\b(pass|passes|passed|passing|comply|complies|compliant|compliance|conformant|conforms|conformance|certify|certifies|certified)\b/i;
 
 const TOP_KEYS = new Set(['schema', 'used', 'criteria']);
 const USED_KEYS = new Set(['tools', 'pages']);
@@ -247,7 +247,10 @@ export const validateReport = (input: unknown, context: ValidationContext): Vali
   else {
     checkKeys(checker, 'report.used', used, USED_KEYS);
     if (!Array.isArray(used['tools']) || used['tools'].length === 0 || !used['tools'].every(nonEmpty)) checker.errors.push('report.used.tools: required (every tool, script and check you used)');
-    else tools = used['tools'];
+    else {
+      tools = used['tools'];
+      tools.forEach((tool, i) => checker.strings(`report.used.tools[${i}]`, tool));
+    }
     // A run that never loaded a page never drove the browser, so none of its behaviour evidence can stand.
     if (!Array.isArray(used['pages']) || used['pages'].length === 0 || !used['pages'].every(nonEmpty)) checker.errors.push('report.used.pages: required (every page you loaded in the browser, at least one)');
     else pages = used['pages'];

@@ -1,5 +1,5 @@
 // Starts the finder: a fresh, read-only session with the brief filled from the shipped table and a scratch folder holding the browser kit.
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { bold, dim, failLine, heading, hintLine, okLine, out, warnLine } from './_ansi.ts';
@@ -14,7 +14,7 @@ import { printChecks, runPreflight } from './_preflight.ts';
 import { formatUsage, plural } from './_render.ts';
 import { extractReportJson, REPORT_SHAPE, tallyOf, validateReport, type ValidationContext, type ValidationResult } from './_report.ts';
 import { ALL_DENIES, computeOffLimits, rulesInWords } from './_rules.ts';
-import { latestDryRun, newRunId, runDir, stateRoot, writeJson, type RunMeta } from './_runs.ts';
+import { latestDryRun, newRunId, reportHash, runDir, stateRoot, writeJson, type DryRunRecord, type RunMeta } from './_runs.ts';
 import { onExit } from './_exec.ts';
 import { installKit, makeScratch, probeBrowser, removeDir } from './_scratch.ts';
 import { serveStatic, type StaticServer } from './_serve.ts';
@@ -54,14 +54,28 @@ export const finderBrief = (input: BriefInput): string =>
     RULES: rulesInWords(input.spec).map((rule) => `- ${rule}`).join('\n'),
     REPORT_SCHEMA: REPORT_SHAPE,
     CRITERIA_TABLE: criteriaTableFor(input.level),
+    CAPS: `${input.spec.maxTurns} turns, $${input.spec.maxBudgetUsd} and ${Math.round(input.spec.timeoutMs / 60_000)} minutes`,
   });
+
+interface DryRunWanted {
+  backend: string;
+  model: string;
+  effort: string;
+}
+
+// A finder only starts after a clean dry run with the same backend, model and effort, recent enough that nothing about the setup has had time to change.
+export const dryRunIsFresh = (dry: DryRunRecord | null, wanted: DryRunWanted, now: number): boolean =>
+  dry !== null && dry.clean && dry.backend === wanted.backend && dry.model === wanted.model && dry.effort === wanted.effort && now - Date.parse(dry.at) < DRY_RUN_MAX_AGE_MS;
+
+// Without a result event a session reports no cost or turns, so its spend is unknown and a retry would be handed a budget that may already be gone.
+const reportedUsage = (session: SessionResult): boolean => session.usage.turns > 0;
 
 const requireLevel = (options: Options): Level => {
   if (!options.level) throw new Error('Pass --level A, AA or AAA. Ask the user if the project names no standard.');
   return options.level;
 };
 
-const finderSpec = (options: Options, root: string, scratch: string | null, transcriptPath: string, ignored: string[]): RoleSpec => ({
+const finderSpec = (options: Options, root: string, scratch: string | null, transcriptPath: string, ignored: string[], agentPaths: string[]): RoleSpec => ({
   role: 'finder',
   brief: '',
   cwd: root,
@@ -69,7 +83,7 @@ const finderSpec = (options: Options, root: string, scratch: string | null, tran
   readOnly: true,
   noTools: false,
   deny: ALL_DENIES,
-  offLimits: computeOffLimits({ repoRoot: root, runsRoot: stateRoot(), scratch, ignoredInRepo: ignored }),
+  offLimits: computeOffLimits({ repoRoot: root, runsRoot: stateRoot(), scratch, ignoredInRepo: ignored, agentPaths }),
   model: options.model,
   effort: options.effort,
   maxTurns: options.maxTurns,
@@ -78,12 +92,12 @@ const finderSpec = (options: Options, root: string, scratch: string | null, tran
   transcriptPath,
 });
 
-export const cmdBrief = (options: Options): number => {
+export const cmdBrief = (options: Options, backend: Backend): number => {
   if (options.subject !== 'finder') throw new Error('Only `brief finder` exists in this version');
   const level = requireLevel(options);
   const root = options.cwd;
   const scratch = '<a fresh scratch folder per run>';
-  const spec = finderSpec(options, root, null, '', []);
+  const spec = finderSpec(options, root, null, '', [], backend.offLimits());
   spec.scratch = scratch;
   out(finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl: options.url ?? '<served for the run>', pages: options.pages, scratch, browser: '<your installed Chrome or Edge>', channel: 'chrome', spec }));
   return 0;
@@ -128,8 +142,7 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
   const repo = repoSlugFor(root);
 
   const dry = latestDryRun(repo);
-  const fresh = dry && dry.clean && dry.backend === backend.name && dry.model === options.model && dry.effort === options.effort && Date.now() - Date.parse(dry.at) < DRY_RUN_MAX_AGE_MS;
-  if (!fresh) {
+  if (!dryRunIsFresh(dry, { backend: backend.name, model: options.model, effort: options.effort }, Date.now())) {
     failLine(`No clean dry run for ${repo.owner}/${repo.name} with ${options.model} at effort ${options.effort} in the last six hours.`);
     hintLine('Run `node runner.ts dry-run` first, and read what the session says it loaded.');
     return 1;
@@ -161,7 +174,7 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
 
     const before = treeState(root);
     const ignored = ignoredIn(root, ['.']);
-    const spec = finderSpec(options, root, scratch, join(dir, 'transcript.jsonl'), ignored);
+    const spec = finderSpec(options, root, scratch, join(dir, 'transcript.jsonl'), ignored, backend.offLimits());
     const browser = `${probe.channel} ${probe.version} (headless)`;
     spec.brief = finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl, pages, scratch, browser, channel: probe.channel, spec });
     writeFileSync(join(dir, 'brief.md'), spec.brief);
@@ -197,12 +210,14 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
     let session = await backend.start(spec);
     let usage: Usage = session.usage;
     let attempts = 1;
+    let denials = session.permissionDenials;
+    let unreported = !reportedUsage(session);
     const errors = [...session.errors];
     let attempt = reportFrom(session, context);
     const stoppedAtStart = session.errors.some((error) => error.startsWith('stopped at start'));
     // Retries share the caps the user agreed to. Each one gets only what's left, and none starts without a useful amount left.
     const left = (): { usd: number; turns: number; ms: number } => ({ usd: options.maxBudgetUsd - usage.costUsd, turns: options.maxTurns - usage.turns, ms: options.timeoutMinutes * 60_000 - (Date.now() - startedAt) });
-    while (!attempt.validation.ok && !stoppedAtStart && session.sessionId && attempts < MAX_ATTEMPTS) {
+    while (!attempt.validation.ok && !stoppedAtStart && session.sessionId && reportedUsage(session) && attempts < MAX_ATTEMPTS) {
       const remaining = left();
       if (remaining.usd < 0.5 || remaining.turns < 5 || remaining.ms < 2 * 60_000) {
         warnLine('the report has problems, but too little of the budget, turns or time is left to send them back');
@@ -212,6 +227,8 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
       const retry = { ...spec, maxBudgetUsd: Number(remaining.usd.toFixed(2)), maxTurns: Math.floor(remaining.turns), timeoutMs: remaining.ms };
       session = await backend.resume(retry, session.sessionId, fixMessage(attempt.validation.ok ? [] : attempt.validation.errors));
       usage = addUsage(usage, session.usage);
+      denials += session.permissionDenials;
+      unreported ||= !reportedUsage(session);
       errors.push(...session.errors);
       attempts += 1;
       attempt = reportFrom(session, context);
@@ -220,12 +237,14 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
 
     const changes = treeChanges(before, treeState(root), options.allowIgnored);
     meta.finishedAt = new Date().toISOString();
-    meta.finder = { sessionId: session.sessionId, attempts, usage, transcriptPath: spec.transcriptPath, errors, strays: changes.tree, ignoredStrays: changes.ignored, valid: validation.ok };
+    meta.finder = { sessionId: session.sessionId, attempts, usage, transcriptPath: spec.transcriptPath, errors, permissionDenials: denials, strays: changes.tree, ignoredStrays: changes.ignored, valid: validation.ok, reportSha256: null };
     writeJson(join(dir, 'meta.json'), meta);
     const strays = [...changes.tree, ...changes.ignored.map((path) => `new or gone gitignored path: ${path}`)];
 
     heading('Result');
     for (const error of errors) warnLine(error);
+    if (unreported) warnLine('a session ended without reporting its cost, so the cost below is too low');
+    if (denials > 0) warnLine(`the finder tried ${plural(denials, 'thing', 'things')} its rules deny. The transcript shows what: ${spec.transcriptPath}`);
     if (changes.tree.length > 0) {
       failLine('The finder changed tracked or untracked files in the repository, which it must never do:');
       for (const stray of changes.tree) hintLine(stray);
@@ -242,6 +261,9 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
       return 1;
     }
     writeJson(join(dir, 'report.json'), validation.report);
+    // `file` refuses a report that changed after this, so what reaches GitHub is what the finder reported and the runner checked.
+    meta.finder.reportSha256 = reportHash(readFileSync(join(dir, 'report.json'), 'utf8'));
+    writeJson(join(dir, 'meta.json'), meta);
     const tally = tallyOf(validation.report);
     okLine(`a verdict for all ${validation.report.criteria.length} criteria: ❌ ${tally.fail}, 🕵️ ${tally.check}, ✅ ${tally['found-no-fail']}, n/a ${tally.na}`);
     out(`  ${plural(tally.failItems, 'fail', 'fails')} for agents, ${plural(tally.checkItems, 'check', 'checks')} for a person`);

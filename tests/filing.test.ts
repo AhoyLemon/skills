@@ -56,6 +56,36 @@ test('filing creates the agent issue, then the person\'s, cross-links them, then
   assert.equal(filed.rawCommentUrls.length, 1);
 });
 
+// Long enough that the ✅ evidence can't fit in the agent issue's body and moves into comments of its own.
+const bigReport = (): FinderReport => {
+  const raw = makeReport('A') as { criteria: Record<string, unknown>[] };
+  const did = 'Loaded every page in the browser and looked at each element that could carry this. '.repeat(45);
+  raw.criteria = raw.criteria.map((item) => ('na' in item ? { num: item['num'], evidence: [{ did, saw: 'Nothing on any page fails it' }] } : item));
+  const result = validateReport(raw, { criteria: criteriaAt('A'), repoRoot: makeSite(), tracked: new Set(['index.html', 'css/site.css']) });
+  if (!result.ok) throw new Error(result.errors.join('\n'));
+  return result.report;
+};
+
+const fileWith = (big: FinderReport, gh: GhClient, filed: FiledRecord): void => fileIssues({ report: big, facts: makeFacts('A'), slug: 'AhoyLemon/skills', filed, gh, save: () => undefined, progress: () => undefined });
+
+test('a rerun that stopped partway through the agent issue\'s comments posts only the ones still missing', () => {
+  const big = bigReport();
+  const clean = fakeGh();
+  fileWith(big, clean, emptyFiled());
+  const evidenceComments = clean.calls.indexOf('create person') - clean.calls.indexOf('create agent') - 1;
+  assert.ok(evidenceComments >= 1, 'the evidence moved into comments');
+
+  const filed = emptyFiled();
+  assert.throws(() => fileWith(big, fakeGh(3), filed), /network went away/);
+  assert.equal(filed.agentCommentUrls.length, 1, 'one evidence comment landed before the failure');
+
+  const retry = fakeGh();
+  fileWith(big, retry, filed);
+  assert.deepEqual(retry.calls.slice(0, evidenceComments + 1), ['label', ...Array<string>(evidenceComments - 1).fill('comment on 1'), 'create person']);
+  assert.equal(filed.agentCommentUrls.length, evidenceComments);
+  assert.equal(filed.agentLinked, true);
+});
+
 test('a rerun after a failure picks up where it stopped and files nothing twice', () => {
   const filed = emptyFiled();
   assert.throws(() => file(fakeGh(2), filed), /network went away during create person/);

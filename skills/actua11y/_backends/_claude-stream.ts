@@ -20,12 +20,16 @@ const names = (value: unknown, key = 'name'): string[] => (Array.isArray(value) 
 
 const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 
+// apiKeySource is "none" for a subscription sign-in (or a cloud provider), and otherwise names the key the session bills.
+const loginOf = (source: unknown): string => (typeof source !== 'string' || source === 'none' ? 'no API key, so your Claude sign-in (or Bedrock or Vertex, if you set one up)' : `${source}, billed to that API account`);
+
 const initFrom = (event: Json): InitInfo => ({
   sessionId: String(event['session_id'] ?? ''),
   model: String(event['model'] ?? ''),
   version: String(event['claude_code_version'] ?? ''),
   cwd: String(event['cwd'] ?? ''),
   permissionMode: String(event['permissionMode'] ?? ''),
+  login: loginOf(event['apiKeySource']),
   tools: strings(event['tools']),
   mcpServers: names(event['mcp_servers']),
   plugins: Array.isArray(event['plugins']) ? event['plugins'].filter(isRecord).map((plugin) => `${String(plugin['name'] ?? '')}@${String(plugin['path'] ?? '')}`) : [],

@@ -26,7 +26,7 @@ const main = async (): Promise<number> => {
     case 'dry-run':
       return cmdDryRun(options, backend);
     case 'brief':
-      return cmdBrief(options);
+      return cmdBrief(options, backend);
     case 'run':
       return cmdRunFinder(options, backend);
     case 'file':

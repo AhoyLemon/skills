@@ -2,7 +2,7 @@
 name: actua11y
 description: An accessibility audit for coding agents that is honest about what a machine settled and what still needs a person. Audits a site against WCAG 2.2 (A, AA or AAA) with a fresh, isolated, read-only session that drives a real browser, then files two GitHub issues, one for agents (every proven fail, with file, line and repro steps) and one for a person (everything a machine can't settle). Use when someone asks for an accessibility audit, an a11y review, WCAG conformance, or "is this accessible?". It never says a site passes.
 license: MIT for code, CC BY 4.0 for prose. See LICENSE in github.com/AhoyLemon/skills.
-compatibility: Claude Code, with Node 22.18 or later, git, the GitHub CLI signed in, and Chrome or Edge installed.
+compatibility: Claude Code, with Node 22.18 or later, git, the GitHub CLI signed in, and Chrome or Edge installed (or Playwright's own Chromium).
 metadata:
   author: Lemon
   version: 0.1.0
@@ -41,7 +41,7 @@ The runner lives in this skill's base directory. Call it as `node <base director
 Ask these together where you can, and keep it brisk.
 
 - **The target level: A, AA or AAA.** Levels are cumulative (AA means A and AA). If the project names a standard (a contract, an accessibility statement, the README), offer that. Otherwise ask, with all three as real options.
-- **At AAA, warn before anything runs**, something like: "AAA it is. I'll do my best, but this is a best effort, not a claim. Real AAA conformance needs a qualified accessibility specialist and testing with disabled people, and WCAG itself doesn't recommend AAA as a blanket target for a whole site." The runner and both issues repeat it.
+- **At AAA, warn before anything runs**, something like: "AAA it is. I'll do my best, but this is a best effort, not a claim. Meeting AAA for real needs a qualified accessibility specialist and testing with disabled people, and WCAG itself doesn't recommend AAA as a blanket target for a whole site." The runner and both issues repeat it.
 - **The scope.** What the user names, or a stated assumption they can correct in a word ("the whole site", "these pages", "this branch's changes"). Pass paths with `--scope`, and pages with `--page` if they named them. Otherwise the finder finds the pages itself.
 - **The running site.** A URL for a dev server that's already up (`--url`), or a folder for a static site, which the runner serves on localhost for the run (`--serve <folder>`). If the site needs a dev server and none is running, ask before starting one.
 - **Why a real browser.** Say it plainly: the finder drives the user's installed Chrome or Edge, headless, because keyboard behaviour, focus and rendered contrast only exist once a page is running. Some people don't want that by default, so they should hear why.
@@ -99,6 +99,7 @@ The fix-and-certify loop comes in a later version. Don't start fixing things you
 - Say or imply the site passes, complies or conforms, anywhere.
 - Paraphrase, summarise or re-rank the finder's findings as if they were yours. The issues are the record.
 - File, edit or comment on issues by hand. The runner does it, every time.
+- Edit a run's local record. `file` refuses a report that changed after the run, so the fix for a bad report is another run.
 - Edit the repository being audited during an assess-only run.
 - Fake independence. If the runner can't start an isolated session here, say so and stop.
 

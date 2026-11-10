@@ -7,13 +7,15 @@ import type { DenyCategory, RoleSpec } from './_backend.ts';
 
 export const ALL_DENIES: DenyCategory[] = ['git', 'github', 'web', 'subagents', 'installs'];
 
-const SENSITIVE_HOME = ['.claude', '.agents', '.codex', '.config/gh', '.ssh', '.aws', '.gnupg', '.npmrc', '.netrc', '.docker', '.kube'];
+// .claude.json lists the path of every project the user has opened in Claude Code.
+const SENSITIVE_HOME = ['.claude', '.claude.json', '.agents', '.codex', '.config/gh', '.ssh', '.aws', '.gnupg', '.npmrc', '.netrc', '.docker', '.kube'];
 
 export interface OffLimitsInput {
   repoRoot: string;
   runsRoot: string;
   scratch: string | null;
   ignoredInRepo: string[];
+  agentPaths: string[];
 }
 
 const real = (path: string): string => {
@@ -28,12 +30,13 @@ export const computeOffLimits = (input: OffLimitsInput): string[] => {
   const paths = new Set<string>();
   // Directories end in a slash, so a backend can tell them apart without touching the disk again.
   const scratch = input.scratch ? real(input.scratch) : null;
-  // Never bar the run from its own scratch folder, even when the temp directory sits next to the repository.
-  const holdsScratch = (path: string): boolean => scratch !== null && (scratch === path || scratch.startsWith(`${path}/`));
+  // Never bar the run from its own scratch folder or the repository it audits, wherever either happens to live.
+  const repo = real(input.repoRoot);
+  const holds = (path: string, inner: string | null): boolean => inner !== null && (inner === path || inner.startsWith(`${path}/`));
   const add = (path: string): void => {
     if (!existsSync(path)) return;
     const resolved = real(path);
-    if (holdsScratch(resolved)) return;
+    if (holds(resolved, scratch) || holds(resolved, repo)) return;
     paths.add(statSync(path).isDirectory() ? `${resolved}/` : resolved);
   };
   add(join(input.repoRoot, '.git'));
@@ -45,6 +48,7 @@ export const computeOffLimits = (input: OffLimitsInput): string[] => {
   const ownScratch = input.scratch ? basename(input.scratch) : null;
   for (const entry of readdirSync(temp)) if (entry.startsWith('actua11y-') && entry !== ownScratch) add(join(temp, entry));
   for (const entry of SENSITIVE_HOME) add(join(homedir(), entry));
+  for (const path of input.agentPaths) add(path);
   return [...paths].sort();
 };
 

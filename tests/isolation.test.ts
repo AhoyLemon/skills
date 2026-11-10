@@ -39,6 +39,7 @@ const stubBackend: Backend = {
   start: () => Promise.reject(new Error('not used')),
   resume: () => Promise.reject(new Error('not used')),
   initProblems: () => [],
+  offLimits: () => [],
 };
 
 const failures = async (root: string, extra: { scope?: string[]; allowIgnored?: string[] } = {}): Promise<string[]> => {
@@ -107,8 +108,16 @@ test('off-limits paths come from disk, but never bar the run from its own scratc
   mkdirSync(join(parent, 'answers'));
   mkdirSync(join(parent, 'scratch-run'));
   const scratch = join(parent, 'scratch-run');
-  const offLimits = computeOffLimits({ repoRoot: root, runsRoot: join(parent, 'no-such-runs'), scratch, ignoredInRepo: ['node_modules/'] });
+  // Nested, so neither the sibling rule nor the actua11y temp-folder rule could be what bars it.
+  const agentTemp = join(tempDir('agent'), 'claude-501');
+  mkdirSync(agentTemp);
+  const offLimits = computeOffLimits({ repoRoot: root, runsRoot: join(parent, 'no-such-runs'), scratch, ignoredInRepo: ['node_modules/'], agentPaths: [agentTemp, join(agentTemp, 'no-such-agent-folder')] });
   assert.ok(offLimits.includes(`${join(root, '.git')}/`));
+  assert.ok(offLimits.includes(`${agentTemp}/`), 'a folder the backend names as its own');
+  assert.ok(!offLimits.some((path) => path.includes('no-such-agent-folder')), 'only paths that exist');
+  // The scratch folder lives elsewhere here, so only the repository can be the reason the folder is spared.
+  const holdsRepo = computeOffLimits({ repoRoot: root, runsRoot: join(parent, 'no-such-runs'), scratch: tempDir('elsewhere'), ignoredInRepo: [], agentPaths: [parent] });
+  assert.ok(!holdsRepo.some((path) => root.startsWith(path.replace(/\/$/, ''))), 'never the folder the audited repository lives in');
   assert.ok(offLimits.includes(`${join(parent, 'answers')}/`), 'a sibling folder');
   assert.ok(offLimits.includes(`${join(parent, 'remote.git')}/`), 'the bare remote, which holds history');
   assert.ok(!offLimits.some((path) => path.startsWith(scratch)), 'the scratch folder stays readable');

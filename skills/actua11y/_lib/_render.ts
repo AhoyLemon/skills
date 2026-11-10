@@ -44,7 +44,14 @@ export const safeText = (text: string): string =>
 
 const encodePath = (file: string): string => file.split('/').map(encodeURIComponent).join('/');
 
-export const codeLink = (facts: RunFacts, file: string, line: number): string => `[\`${file}:${line}\`](https://github.com/${facts.repo.owner}/${facts.repo.name}/blob/${facts.commit}/${encodePath(file)}#L${line})`;
+// A code span that a backtick inside the text can't close early.
+const codeSpan = (text: string): string => {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const pad = longest > 0 ? ' ' : '';
+  return `${'`'.repeat(longest + 1)}${pad}${text}${pad}${'`'.repeat(longest + 1)}`;
+};
+
+export const codeLink = (facts: RunFacts, file: string, line: number): string => `[${codeSpan(`${file}:${line}`)}](https://github.com/${facts.repo.owner}/${facts.repo.name}/blob/${facts.commit}/${encodePath(file)}#L${line})`;
 
 const criterionHeading = (num: string): string => {
   const criterion = criterionByNum(num);
@@ -73,7 +80,7 @@ const usedSection = (report: FinderReport, facts: RunFacts): string => {
     '',
     `- **Browser:** ${facts.browser ? `${facts.browser.channel} ${facts.browser.version}, headless, recorded by the runner. One engine checked, so behaviour in other engines is a person's call` : 'none'}`,
     `- **axe:** ${facts.axe ? `axe-core ${facts.axe.version}, tags ${facts.axe.tags.map((tag) => `\`${tag}\``).join(' ')}. An axe result covers one rule, never a whole criterion, and axe covers only part of WCAG` : 'not run'}`,
-    `- **Pages:** ${report.used.pages.length > 0 ? report.used.pages.map((page) => `\`${page}\``).join(', ') : 'none loaded'} (base ${facts.baseUrl})`,
+    `- **Pages:** ${report.used.pages.length > 0 ? report.used.pages.map(codeSpan).join(', ') : 'none loaded'} (base ${facts.baseUrl})`,
     `- **Tools:** ${report.used.tools.map(safeText).join(', ')}`,
     `- **Session:** a fresh, read-only ${facts.backend} session with none of your settings, memory or plugins. Model \`${facts.model}\`, effort \`${facts.effort}\``,
     `- **Cost:** finder ${formatUsage(facts.usage)}${facts.dryRunUsage ? `, dry run ${formatUsage(facts.dryRunUsage)}` : ''}. Costs are the agent's own estimates`,

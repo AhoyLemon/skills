@@ -39,10 +39,16 @@ test('both issues carry the best-faith line, and the AAA warning only at AAA', (
 
 test('nothing actua11y renders says the target passes', () => {
   // The rule itself ("it can never prove a pass") is the one place the word may appear.
-  const claim = /\b(pass|passes|passed|passing|compliant|conformant|conforms|certified)\b/i;
+  const claim = /\b(pass|passes|passed|passing|comply|complies|compliant|compliance|conformant|conforms|conformance|certify|certifies|certified)\b/i;
   for (const level of ['A', 'AA', 'AAA'] as const) {
     for (const piece of renderAll(level)) assert.doesNotMatch(piece.split(BEST_FAITH).join(''), claim);
   }
+});
+
+test('a page the finder names can\'t break out of its code span to ping anyone', () => {
+  const report = { ...validReport('A'), used: { tools: ['Read'], pages: ['http://127.0.0.1:4173/`@everyone`'] } };
+  const agent = renderAgentIssue(report, makeFacts('A'), { personUrl: 'https://github.com/AhoyLemon/skills/issues/2' });
+  assert.ok(agent.body.includes('`` http://127.0.0.1:4173/`@everyone` ``'));
 });
 
 test('fails go to agents with code links, checks go to the person, evidence stays visible but collapsed', () => {

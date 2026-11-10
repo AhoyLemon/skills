@@ -121,6 +121,16 @@ test('no claims of a pass or compliance, except quoted UI text in backticks', ()
   entry(compliant, '1.2.1')['na'] = 'Compliant by design';
   assert.match(errorsFor(compliant).join('\n'), /uses "Compliant"/);
 
+  for (const word of ['complies', 'compliance', 'conformance', 'certified']) {
+    const claim = report();
+    entry(claim, '2.4.2')['evidence'] = [{ did: 'Checked titles', saw: `The titles show ${word} with the guidelines` }];
+    assert.match(errorsFor(claim).join('\n'), new RegExp(`uses "${word}"`, 'i'), word);
+  }
+
+  const toolClaim = report();
+  toolClaim['used'] = { tools: ['axe, which passed every page'], pages: ['/'] };
+  assert.match(errorsFor(toolClaim).join('\n'), /used\.tools\[0\]: uses "passed"/, 'the tools list is finder text too');
+
   const quoted = report();
   entry(quoted, '2.4.2')['evidence'] = [{ did: 'Read the button labelled `Pass the moth`', saw: 'It has a name' }];
   assert.deepEqual(errorsFor(quoted), []);

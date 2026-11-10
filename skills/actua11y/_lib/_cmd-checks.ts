@@ -37,7 +37,7 @@ export const cmdDryRun = async (options: Options, backend: Backend): Promise<num
     readOnly: true,
     noTools: true,
     deny: ALL_DENIES,
-    offLimits: computeOffLimits({ repoRoot: root, runsRoot: stateRoot(), scratch: null, ignoredInRepo: [] }),
+    offLimits: computeOffLimits({ repoRoot: root, runsRoot: stateRoot(), scratch: null, ignoredInRepo: [], agentPaths: backend.offLimits() }),
     model: options.model,
     effort: options.effort,
     maxTurns: 2,
@@ -52,6 +52,7 @@ export const cmdDryRun = async (options: Options, backend: Backend): Promise<num
   if (session.init) {
     const init = session.init;
     out(`  model ${init.model}, ${backend.name} ${init.version}, permission mode ${init.permissionMode}`);
+    out(`  login: ${init.login}`);
     out(`  tools: ${init.tools.length > 0 ? init.tools.join(', ') : 'none'}`);
     out(`  MCP servers: ${init.mcpServers.length > 0 ? init.mcpServers.join(', ') : 'none'}`);
     out(`  skills: ${init.skills.length > 0 ? init.skills.join(', ') : 'none'}`);
