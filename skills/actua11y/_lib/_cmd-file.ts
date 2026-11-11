@@ -35,6 +35,7 @@ export const factsFrom = (meta: RunMeta): RunFacts => {
     effort: meta.effort,
     usage: meta.session.usage,
     dryRunUsage: meta.dryRun?.usage ?? null,
+    dryRunAt: meta.dryRun?.at ?? null,
     fences: { denials: meta.session.permissionDenials ?? 0, mentions: (meta.session.offLimitsMentions ?? []).reduce((sum, mention) => sum + mention.count, 0) },
     served: meta.served ?? null,
     finishedAt: meta.finishedAt ?? meta.createdAt,

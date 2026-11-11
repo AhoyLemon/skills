@@ -14,7 +14,8 @@ import { criteriaAt } from '../skills/actua11y/_lib/_criteria.ts';
 import { fileIssues } from '../skills/actua11y/_lib/_filing.ts';
 import { FIXER_SCHEMA } from '../skills/actua11y/_lib/_fixer.ts';
 import { carriedFor, ledgerHash, passPlan, type Ledger } from '../skills/actua11y/_lib/_ledger.ts';
-import { loadLoop } from '../skills/actua11y/_lib/_loop.ts';
+import { loadLoop, saveLoop } from '../skills/actua11y/_lib/_loop.ts';
+import { renderUnfiledComments } from '../skills/actua11y/_lib/_render-loop.ts';
 import { renderAgentIssue, renderPersonIssue, YOURS_END, YOURS_START } from '../skills/actua11y/_lib/_render.ts';
 import { validateReport } from '../skills/actua11y/_lib/_report.ts';
 import { emptyFiled, reportHash, type RunMeta } from '../skills/actua11y/_lib/_runs.ts';
@@ -246,4 +247,24 @@ test('a fixer report that skips a commit, cites one outside the round or answers
   assert.equal(record({ schema: FIXER_SCHEMA, brief: brief.id, findings }), 1, 'an uncited commit');
   assert.equal(record({ schema: FIXER_SCHEMA, brief: 'deadbeef0000', findings }), 1, 'a stale brief');
   assert.equal(gh.prs.size, 0, 'nothing reaches GitHub from a refused report');
+});
+
+test("a certifier run that can never be filed still counts against the budget, once", () => {
+  const { root, remote } = makeRepo();
+  const gh = fakeGithub(SLUG, remote);
+  const validated = validateReport(makeReport('A'), { criteria: criteriaAt('A'), repoRoot: root, tracked: new Set(['index.html', 'css/site.css']) });
+  if (!validated.ok) throw new Error(validated.errors.join('\n'));
+  const filed = emptyFiled();
+  fileIssues({ report: validated.report, facts: { ...makeFacts('A'), commit: git(root, 'rev-parse', 'HEAD') }, site: { url: null, serve: '.' }, slug: SLUG, filed, gh, save: () => undefined, progress: () => undefined });
+  const agentUrl = filed.agentUrl ?? '';
+  quietly(() => cmdLoopStart(options(root, agentUrl), gh));
+  const before = loadLoop(gh, agentUrl);
+  const spent = before.view.ledger.spentUsd;
+  const usage = { ...emptyUsage(), costUsd: 4.25, turns: 40, durationMs: 1_200_000 };
+  for (const body of renderUnfiledComments(before.view, { runId: 'run-x', usage, why: 'It ended without a usable report.', transcriptPath: '/t.jsonl' })) gh.commentOn(agentUrl, body);
+  const after = loadLoop(gh, agentUrl);
+  assert.equal(Number((after.view.ledger.spentUsd - spent).toFixed(2)), 4.25);
+  assert.equal(ledgerHash(after.view.ledger), ledgerHash(before.view.ledger), 'spend alone never makes a pass look stale');
+  saveLoop(gh, after, { ledger: after.view.ledger, passes: after.view.passes });
+  assert.equal(Number((loadLoop(gh, agentUrl).view.ledger.spentUsd - spent).toFixed(2)), 4.25, 'saved, and still counted once');
 });

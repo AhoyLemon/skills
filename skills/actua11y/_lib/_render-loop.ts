@@ -405,3 +405,17 @@ export const renderCloseOutBody = (view: LoopView, input: CloseOutInput): string
     '',
   ].join('\n');
 };
+
+export interface UnfiledInput {
+  runId: string;
+  usage: Usage;
+  why: string;
+  transcriptPath: string;
+}
+
+// A certifier run that can never be filed still spent money. This comment puts that on the record, and loadLoop adds it to what the loop has spent, so the budget can't leak.
+export const renderUnfiledComments = (view: LoopView, input: UnfiledInput): string[] =>
+  fitWithRaw(
+    [`<!-- actua11y:unfiled v1 run=${input.runId} -->`, `## actua11y · certifier run \`${input.runId}\` can't be filed`, '', bestFaith(view), '', `${safeText(input.why)} It cost ${formatUsage(input.usage)}, which counts against the loop's budget. Its transcript is \`${input.transcriptPath}\`, kept on the machine that ran it.`, ''].join('\n'),
+    rawBlocks('unfiled', { run: input.runId }, 'What this run cost', { runId: input.runId, usd: input.usage.costUsd }),
+  );

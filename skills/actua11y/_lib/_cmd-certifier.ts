@@ -16,7 +16,7 @@ import { applyPass, budgetLeft, carriedFor, humanPassesSinceApproval, ledgerHash
 import { ensurePr, loadLoop, postRun, runTarget, saveLoop, type LoopGh } from './_loop.ts';
 import { printChecks, runPreflight } from './_preflight.ts';
 import { formatUsage, plural } from './_render.ts';
-import { carriedText, certifierItemsText, outOfScopeText, renderCertifierComments, renderReportBack, verdictText } from './_render-loop.ts';
+import { carriedText, certifierItemsText, outOfScopeText, renderCertifierComments, renderReportBack, renderUnfiledComments, verdictText } from './_render-loop.ts';
 import { rulesInWords } from './_rules.ts';
 import { newRunId, reportHash, runDir, writeJson, type RunMeta } from './_runs.ts';
 import { aftermath, auditSpec, nextLine, printAftermath, runRole, strayLines } from './_session.ts';
@@ -171,7 +171,11 @@ export const cmdRunCertifier = async (options: Options, backend: Backend, client
     meta.served = server ? server.served() : null;
     meta.session = after.record;
     writeJson(join(dir, 'meta.json'), meta);
-    if (!printAftermath(run, after, spec, dir) || !run.checked.ok) return 1;
+    if (!printAftermath(run, after, spec, dir) || !run.checked.ok) {
+      postRun(client, runTarget(state, ledger), renderUnfiledComments(state.view, { runId, usage: run.usage, why: `It ended without a usable report, after ${plural(run.attempts, 'attempt', 'attempts')}.`, transcriptPath: spec.transcriptPath }));
+      out(dim('Its cost is posted on the record, so it counts against the loop\'s budget.'));
+      return 1;
+    }
 
     const report = run.checked.report;
     meta.pages = report.used.pages;
@@ -211,7 +215,10 @@ export const fileCertifierRun = (input: FileCertifierInput): number => {
     return 0;
   }
   // Filing a pass against a loop that moved on since it started would judge the wrong list, so the runner refuses rather than guess.
-  if (ledgerHash(ledger) !== info.ledgerSha256) throw new Error(`The loop moved on after pass ${info.pass} started, so its report no longer matches the list it was given. Run the certifier again`);
+  if (ledgerHash(ledger) !== info.ledgerSha256) {
+    postRun(client, runTarget(state, ledger), renderUnfiledComments(state.view, { runId: meta.runId, usage: session.usage, why: `The loop moved on after pass ${info.pass} started, so its report no longer matches the list it was given.`, transcriptPath: session.transcriptPath }));
+    throw new Error(`The loop moved on after pass ${info.pass} started, so its report no longer matches the list it was given. Its cost is posted on the record. Run the certifier again`);
+  }
   const report = JSON.parse(input.reportText) as CertifierReport;
   const verdict = passVerdict(report, new Set(info.blocking));
   const outcome = applyPass(ledger, report, verdict, {

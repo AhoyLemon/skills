@@ -126,6 +126,8 @@ export interface Ledger {
   checks: CheckItem[];
   human: HumanItem[];
   closed: { sha: string; at: string; uncertified: string[]; atCap: boolean } | null;
+  // Runs that spent money but can never be filed, already counted in spentUsd. Their costs ride in comments of their own.
+  unfiled: string[];
 }
 
 // Everything a renderer or a brief needs: the ledger, plus the raw reports its ids point into.
@@ -150,7 +152,7 @@ export const initialLedger = (report: FinderReport, facts: RunFacts, site: { url
     result.checks.forEach((_, index) => checks.push({ id: `P${checks.length + 1}`, source: { kind: 'finder', num: result.num, index } }));
   }
   const spent = facts.usage.costUsd + (facts.dryRunUsage?.costUsd ?? 0);
-  return { schema: LEDGER_SCHEMA, facts, site, personUrl: null, loop: null, stage: 'filed', stopped: null, spentUsd: spent, rounds: [], items, checks, human: [], closed: null };
+  return { schema: LEDGER_SCHEMA, facts, site, personUrl: null, loop: null, stage: 'filed', stopped: null, spentUsd: spent, rounds: [], items, checks, human: [], closed: null, unfiled: [] };
 };
 
 // ---- Reading and writing it ----
@@ -182,13 +184,14 @@ export const parseLedger = (body: string): Ledger | null => {
   try {
     const parsed = JSON.parse(json) as Ledger;
     if (parsed.schema !== LEDGER_SCHEMA) return null;
-    return { ...parsed, items: parsed.items.map(fullItem), human: parsed.human.map(fullHuman), rounds: parsed.rounds.map(fullRound) };
+    return { ...parsed, items: parsed.items.map(fullItem), human: parsed.human.map(fullHuman), rounds: parsed.rounds.map(fullRound), unfiled: parsed.unfiled ?? [] };
   } catch {
     return null;
   }
 };
 
-export const ledgerHash = (ledger: Ledger): string => createHash('sha256').update(JSON.stringify(ledger)).digest('hex');
+// What a pass was judged against. Spend is left out, so another run's cost landing in the meantime doesn't make a sound pass look stale.
+export const ledgerHash = (ledger: Ledger): string => createHash('sha256').update(JSON.stringify({ ...ledger, spentUsd: 0, unfiled: [] })).digest('hex');
 
 // ---- What its ids point at ----
 
@@ -456,7 +459,7 @@ export const applyPass = (ledger: Ledger, report: CertifierReport, verdict: Pass
     newChecks.push(check.id);
     return check.id;
   });
-  const countDryRun = input.dryRun !== null && !next.rounds.some((round) => round.dryRunAt === input.dryRun?.at);
+  const countDryRun = input.dryRun !== null && input.dryRun.at !== next.facts.dryRunAt && !next.rounds.some((round) => round.dryRunAt === input.dryRun?.at);
   next.spentUsd += input.usage.costUsd + (countDryRun ? (input.dryRun?.costUsd ?? 0) : 0);
   next.rounds.push({ kind: 'certifier', n: input.pass, stage, sha: input.sha, base: null, at: input.at, runId: input.runId, model: input.model, effort: input.effort, browser: input.browser, usage: input.usage, reported: null, approved: verdict.approved, commentUrls: input.commentUrls, dryRunAt: input.dryRun?.at ?? null });
 

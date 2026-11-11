@@ -23,6 +23,8 @@ export interface RunFacts {
   effort: string;
   usage: Usage;
   dryRunUsage: Usage | null;
+  // When that dry run ran, so a certifier pass that reuses it doesn't count its cost again.
+  dryRunAt: string | null;
   // What the fences caught: tool calls the rules refused, and tool calls that named an off-limits path anyway.
   fences: { denials: number; mentions: number } | null;
   // Every path the runner's own server sent back, when it served the site.

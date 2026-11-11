@@ -111,3 +111,12 @@ test("a behaviour fail a re-walk finds carries its own steps into every later pa
   const view = { ledger, finder: finder(), passes: new Map([[1, report]]) };
   assert.deepEqual(carriedFor(view, 'A3').map(({ from, steps: carried }) => ({ from, carried })), [{ from: 1, carried: steps }]);
 });
+
+test("a first pass that reuses the finder's dry run doesn't pay for it twice", () => {
+  const ledger = fixerRound(started(), 1);
+  const report: CertifierReport = { ...failing([]), items: [{ id: 'A1', fixed: [{ did: 'd', saw: 's' }] }, { id: 'A2', fixed: [{ did: 'd', saw: 's' }] }] };
+  const reuse = applyPass(ledger, report, passVerdict(report, new Set(['A1', 'A2'])), { ...passInput(1), dryRun: { at: makeFacts('A').dryRunAt ?? '', costUsd: 0.06 } }).ledger;
+  assert.equal(Number((reuse.spentUsd - ledger.spentUsd).toFixed(2)), 2, 'just the pass, not the dry run the finder already counted');
+  const fresh = applyPass(ledger, report, passVerdict(report, new Set(['A1', 'A2'])), { ...passInput(1), dryRun: { at: '2026-11-11T09:00:00Z', costUsd: 0.06 } }).ledger;
+  assert.equal(Number((fresh.spentUsd - ledger.spentUsd).toFixed(2)), 2.06, 'a new dry run counts once');
+});

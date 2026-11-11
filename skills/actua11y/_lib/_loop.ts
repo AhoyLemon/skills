@@ -1,6 +1,6 @@
 // Loads the loop's whole state from the two issues and the PR, and writes it back, through an interface a test can fake. The runner keeps nothing of its own between commands, so a loop can pick up days later from GitHub alone.
 import type { CertifierReport } from './_certifier.ts';
-import { readRaw } from './_fence.ts';
+import { rawValues, readRaw } from './_fence.ts';
 import * as gh from './_gh.ts';
 import type { GhComment, GhIssue, GhPr, NewIssue, NewPr } from './_gh.ts';
 import { parseLedger, passes, type Ledger, type LoopView } from './_ledger.ts';
@@ -80,6 +80,13 @@ export const loadLoop = (client: LoopGh, agentUrl: string): LoopState => {
   }
   const region = regionOf(person.body);
   const kept = region === null ? null : { region, ticked: tickedIn([person.body, ...bodies(person.comments)]) };
+  // Runs that spent money but can never be filed post their cost. Count each one once, and the next save keeps it counted.
+  for (const run of rawValues(runBodies, 'unfiled', 'run')) {
+    if (ledger.unfiled.includes(run)) continue;
+    const spent = readRaw(runBodies, 'unfiled', { run }) as { usd?: unknown } | null;
+    ledger.spentUsd += typeof spent?.usd === 'number' ? spent.usd : 0;
+    ledger.unfiled.push(run);
+  }
   return { agent, person, pr, view: { ledger, finder, passes: reports }, kept };
 };
 
