@@ -229,7 +229,7 @@ export const fileCertifierRun = (input: FileCertifierInput): number => {
   const passesNow = new Map([...state.view.passes, [info.pass, report]]);
   const view: LoopView = { ledger: outcome.ledger, finder: state.view.finder, passes: passesNow };
   const fences = { denials: session.permissionDenials, mentions: session.offLimitsMentions.reduce((sum, mention) => sum + mention.count, 0) };
-  const comments = renderCertifierComments(view, report, verdict, { pass: info.pass, stage: info.stage, sha: info.sha, model: meta.model, effort: meta.effort, usage: session.usage, transcriptPath: session.transcriptPath, browser: meta.browser, served: meta.served, fences, newItems: outcome.newItems, newChecks: outcome.rewalkChecks });
+  const comments = renderCertifierComments(view, report, verdict, { pass: info.pass, runId: meta.runId, stage: info.stage, sha: info.sha, model: meta.model, effort: meta.effort, usage: session.usage, transcriptPath: session.transcriptPath, browser: meta.browser, served: meta.served, fences, newItems: outcome.newItems, newChecks: outcome.rewalkChecks });
   const reportBack = outcome.ended ? renderReportBack(view, { agentUrl: info.issueUrl }) : null;
 
   if (input.options.preview) {

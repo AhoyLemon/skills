@@ -74,7 +74,7 @@ export const loadLoop = (client: LoopGh, agentUrl: string): LoopState => {
   // A pass posts on the PR, or on the agent issue while no commit has given the loop a PR yet.
   const runBodies = [...(pr ? bodies(pr.comments) : []), ...bodies(agent.comments)];
   for (const round of passes(ledger)) {
-    const report = readRaw(runBodies, 'certifier', { pass: String(round.n) }) as CertifierReport | null;
+    const report = readRaw(runBodies, 'certifier', { pass: String(round.n), run: round.runId ?? '' }) as CertifierReport | null;
     if (!report) throw new Error(`Certifier pass ${round.n}'s raw report is missing from the PR and the agent issue, so the loop can't be rebuilt`);
     reports.set(round.n, report);
   }

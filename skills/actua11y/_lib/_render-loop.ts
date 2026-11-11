@@ -112,6 +112,8 @@ const tokensText = (tokens: number | null): string => (tokens === null ? 'unrepo
 
 export interface FixerCommentInput {
   round: number;
+  // A hash of the report, so a corrected report for the same round is posted rather than mistaken for the one already there.
+  reportId: string;
   stage: 'ai' | 'human';
   sha: string;
   base: string;
@@ -133,7 +135,7 @@ export const renderFixerComments = (view: LoopView, report: FixerReport, input: 
   const moved = report.findings.filter((entry) => entry.needsPerson);
   const usage = input.reported.tokens === null && input.reported.minutes === null ? 'Unreported' : `${tokensText(input.reported.tokens)} · ${input.reported.minutes === null ? 'minutes unreported' : `${input.reported.minutes} min`}`;
   const body = [
-    `<!-- actua11y:fixer v1 round=${input.round} -->`,
+    `<!-- actua11y:fixer v1 round=${input.round} report=${input.reportId} -->`,
     input.stage === 'human' ? `## actua11y · fixer round ${input.round}, in the human round` : `## actua11y · fixer round ${input.round} of at most ${MAX_FIXER_ROUNDS}`,
     '',
     bestFaith(view),
@@ -154,7 +156,7 @@ export const renderFixerComments = (view: LoopView, report: FixerReport, input: 
     '',
     ...(input.before.length === 0 ? [] : [`### The person's own commits, made before this round (${input.before.length})`, '', 'The fixer doesn\'t claim these. The next certifier guards them like everything else.', '', ...input.before.map((commit) => `- ${shortSha(commit.sha)} ${safeText(commit.subject)}`), '']),
   ].join('\n');
-  return fitWithRaw(body, rawBlocks('fixer', { round: String(input.round) }, "The fixer's raw report", report));
+  return fitWithRaw(body, rawBlocks('fixer', { round: String(input.round), report: input.reportId }, "The fixer's raw report", report));
 };
 
 // The rendered comment and its raw report travel together when they fit, and the raw parts follow in comments of their own when they don't.
@@ -170,6 +172,8 @@ export const fitWithRaw = (body: string, raw: string[]): string[] => {
 
 export interface CertifierCommentInput {
   pass: number;
+  // Two runs can share a pass number when filing one stopped partway, so every comment and raw report names its run.
+  runId: string;
   stage: 'ai' | 'human';
   sha: string;
   model: string;
@@ -208,7 +212,7 @@ export const renderCertifierComments = (view: LoopView, report: CertifierReport,
   const needsPerson = report.items.filter((item) => item.needsPerson);
   const engine = input.browser ? `${input.browser.channel} ${input.browser.version}` : 'unknown';
   const lines = [
-    `<!-- actua11y:certifier v1 pass=${input.pass} -->`,
+    `<!-- actua11y:certifier v1 pass=${input.pass} run=${input.runId} -->`,
     `## actua11y · certifier pass ${input.pass}, ${input.stage === 'ai' ? 'checking the AI rounds' : 'guarding the human round'}`,
     '',
     bestFaith(view),
@@ -253,7 +257,7 @@ export const renderCertifierComments = (view: LoopView, report: CertifierReport,
   report.rewalk.newChecks.forEach((check, i) => lines.push(`- 🕵️ new, now **${input.newChecks[i] ?? '?'}** on the person's issue: ${criterionHeading(check.num)} ${safeText(check.what)}`));
   lines.push('', '<details>', '<summary>What it did for each criterion</summary>', '', ...report.rewalk.criteria.map((entry) => `- **${entry.num}:** ${safeText(entry.did)}`), '', '</details>', '');
   lines.push(...usedLines(report.used, input), '');
-  return fitWithRaw(lines.join('\n'), rawBlocks('certifier', { pass: String(input.pass) }, `Certifier pass ${input.pass}'s raw report`, report));
+  return fitWithRaw(lines.join('\n'), rawBlocks('certifier', { pass: String(input.pass), run: input.runId }, `Certifier pass ${input.pass}'s raw report`, report));
 };
 
 // ---- The report back, and the PR body ----

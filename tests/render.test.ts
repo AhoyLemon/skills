@@ -5,7 +5,9 @@ import { AAA_WARNING, BEST_FAITH } from '../skills/actua11y/_lib/_copy.ts';
 import { criteriaAt, type Level } from '../skills/actua11y/_lib/_criteria.ts';
 import { GITHUB_LIMIT, freshKept, regionOf, renderAgentIssue, renderPersonIssue, renderRawComments, safeText, tickedIn, YOURS_END, YOURS_START } from '../skills/actua11y/_lib/_render.ts';
 import { validateReport, type FinderReport } from '../skills/actua11y/_lib/_report.ts';
-import { fitWithRaw } from '../skills/actua11y/_lib/_render-loop.ts';
+import { CERTIFIER_SCHEMA, type CertifierReport } from '../skills/actua11y/_lib/_certifier.ts';
+import { readRaw } from '../skills/actua11y/_lib/_fence.ts';
+import { fitWithRaw, renderCertifierComments, type CertifierCommentInput } from '../skills/actua11y/_lib/_render-loop.ts';
 import { claimFree, CLAIM, makeFacts, makeReport, makeSite, viewOf } from './_fixtures.ts';
 
 const repoRoot = makeSite();
@@ -177,4 +179,17 @@ test('a loop comment too long for GitHub splits at its sections, each part under
   assert.equal(heads[0], '<!-- actua11y:certifier v1 pass=2 -->');
   assert.equal(new Set(heads).size, heads.length, 'every comment has its own first line');
   assert.equal(comments.join('').match(/### Section /g)?.length, 30, 'nothing lost');
+});
+
+test("two runs of the same pass post apart and load apart, so a rerun after a half-finished filing can't borrow the first run's report", () => {
+  const view = viewOf(validReport('A'));
+  const report = (did: string): CertifierReport => ({ schema: CERTIFIER_SCHEMA, used: { tools: ['Read'], pages: ['/'] }, items: [], reran: [], rewalk: { criteria: [{ num: '1.1.1', did }], newFails: [], newChecks: [] } });
+  const input = (runId: string): CertifierCommentInput => ({ pass: 1, runId, stage: 'ai', sha: 'a'.repeat(40), model: 'm', effort: 'high', usage: { costUsd: 1, turns: 1, durationMs: 1, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 }, transcriptPath: '/t', browser: null, served: null, fences: { denials: 0, mentions: 0 }, newItems: [], newChecks: [] });
+  const verdict = { approved: true, fixed: [], notFixed: [], needsPerson: [], blockers: [], newFails: 0, newChecks: 0 };
+  const first = renderCertifierComments(view, report('the first run'), verdict, input('run-a'));
+  const second = renderCertifierComments(view, report('the second run'), verdict, input('run-b'));
+  assert.notEqual(first[0]?.split('\n')[0], second[0]?.split('\n')[0], 'different first lines, so the second is posted, not deduplicated away');
+  const both = [...first, ...second];
+  assert.equal((readRaw(both, 'certifier', { pass: '1', run: 'run-b' }) as CertifierReport).rewalk.criteria[0]?.did, 'the second run');
+  assert.equal((readRaw(both, 'certifier', { pass: '1', run: 'run-a' }) as CertifierReport).rewalk.criteria[0]?.did, 'the first run');
 });

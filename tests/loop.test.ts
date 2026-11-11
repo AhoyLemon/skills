@@ -128,7 +128,7 @@ test('a whole loop runs on GitHub alone: two fixer rounds, two passes, a human f
   const pr = [...gh.prs.values()][0];
   assert.ok(pr?.isDraft, 'the first commit opens a draft PR');
   assert.doesNotMatch(pr?.body ?? '', /This closes/, 'no closing lines until close-out');
-  assert.match(pr?.comments[0]?.body ?? '', /<!-- actua11y:fixer v1 round=1 -->[\s\S]*### Fixed in part \(1\)[\s\S]*\*\*Left:\*\* Its focus ring/);
+  assert.match(pr?.comments[0]?.body ?? '', /<!-- actua11y:fixer v1 round=1 report=[0-9a-f]{12} -->[\s\S]*### Fixed in part \(1\)[\s\S]*\*\*Left:\*\* Its focus ring/);
   assert.match(gh.issues.get(agentUrl)?.body ?? '', /\*\*A1\*\*[\s\S]*?claimed at `[0-9a-f]{12}` by fixer round 1/);
   assert.throws(() => quietly(() => cmdRecordFixer(options(root, agentUrl), gh, fenced(report1))), /isn't the fixer's turn/, 'the same report again is refused: it is the certifier\'s turn');
 

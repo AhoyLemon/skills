@@ -213,7 +213,7 @@ export const cmdRecordFixer = (options: Options, client: LoopGh, input: string |
   const withPr: Ledger = { ...ledger, loop: { ...loop, pr } };
   const reported = { tokens: options.tokens, minutes: options.minutes };
   const subjects = (shas: string[]): { sha: string; subject: string }[] => shas.map((sha) => ({ sha, subject: commitSubject(root, sha) }));
-  const comments = renderFixerComments(state.view, report, { round: brief.round, stage: ledger.stage === 'human' ? 'human' : 'ai', sha: head, base, commits: subjects(commits), before: subjects(before), reported });
+  const comments = renderFixerComments(state.view, report, { round: brief.round, reportId: createHash('sha256').update(JSON.stringify(report)).digest('hex').slice(0, 12), stage: ledger.stage === 'human' ? 'human' : 'ai', sha: head, base, commits: subjects(commits), before: subjects(before), reported });
   const urls = postRun(client, runTarget(state, withPr), comments);
   okLine(`posted the fixer's report: ${urls[0] ?? ''}`);
   const next = applyFixer(withPr, report, { round: brief.round, sha: head, base, at: new Date().toISOString(), reported, commentUrls: urls });
