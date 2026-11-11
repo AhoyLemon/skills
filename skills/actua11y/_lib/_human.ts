@@ -1,6 +1,6 @@
 // The person's side of the loop, kept pure so it can be tested: anything recorded as theirs has to be found in their own words first, and close-out waits until they've ticked or decided everything and a pass has approved.
 import type { GhIssue } from './_gh.ts';
-import { humanPasses, latestPass, MAX_HUMAN_PASSES, passPlan, waitingOnPerson, type Ledger, type Round } from './_ledger.ts';
+import { humanPassesSinceApproval, latestPass, MAX_HUMAN_PASSES, passPlan, waitingOnPerson, type Ledger, type Round } from './_ledger.ts';
 import { regionOf } from './_render.ts';
 
 // Only the person's own region and comments without an actua11y marker count. Text the runner wrote, even when it quotes them, never does.
@@ -19,6 +19,8 @@ export interface CloseOutCheck {
   approved: boolean;
   atCap: boolean;
   stillFailing: string[];
+  // Fixes decided after the last pass, which no pass ever judged. Only ever listed at the cap, where no pass is left to judge them.
+  neverJudged: string[];
 }
 
 export const closeOutCheck = (ledger: Ledger, ticked: ReadonlySet<string>, allowAtCap: boolean): CloseOutCheck => {
@@ -32,12 +34,12 @@ export const closeOutCheck = (ledger: Ledger, ticked: ReadonlySet<string>, allow
   const plan = passPlan(ledger);
   const judgedAt = (id: string): number | null => (ledger.items.find((item) => item.id === id)?.judged ?? ledger.human.find((item) => item.id === id)?.judged ?? null)?.pass ?? null;
   const unjudged = latest ? plan.items.filter((id) => judgedAt(id) !== latest.n) : [];
-  if (unjudged.length > 0) refusals.push(`The latest pass didn't judge ${unjudged.join(', ')}, so run the certifier once more`);
-  const atCap = latest !== null && latest.approved !== true && humanPasses(ledger) >= MAX_HUMAN_PASSES;
+  const atCap = latest !== null && humanPassesSinceApproval(ledger) >= MAX_HUMAN_PASSES;
+  if (unjudged.length > 0 && !(atCap && allowAtCap)) refusals.push(atCap ? `The latest pass didn't judge ${unjudged.join(', ')}, and the human round is at its cap. Pass --at-cap to close out anyway, and the PR lists them as never judged` : `The latest pass didn't judge ${unjudged.join(', ')}, so run the certifier once more`);
   if (latest && latest.approved !== true && !(atCap && allowAtCap)) refusals.push(atCap ? `The human round hit its cap of ${MAX_HUMAN_PASSES} certifier runs without an approving pass. Pass --at-cap to close out anyway, and the PR says so plainly` : 'The latest pass didn\'t approve. Fix what it found, push, and run the certifier again');
   const stillFailing = latest ? plan.blocking.filter((id) => {
     const judged = ledger.items.find((item) => item.id === id)?.judged ?? ledger.human.find((item) => item.id === id)?.judged ?? null;
     return judged?.pass === latest.n && judged.result === 'notFixed';
   }) : [];
-  return { refusals, latest, approved: latest?.approved === true, atCap, stillFailing };
+  return { refusals, latest, approved: latest?.approved === true, atCap, stillFailing, neverJudged: atCap ? unjudged : [] };
 };

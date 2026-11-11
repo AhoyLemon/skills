@@ -93,7 +93,7 @@ export const cmdCloseOut = (options: Options, client: LoopGh): number => {
   }
   const agentNumber = Number(agentUrl.split('/').at(-1));
   const personNumber = Number(ledger.personUrl?.split('/').at(-1));
-  const body = renderCloseOutBody(state.view, { agentNumber, personNumber, prNumber: pr.number, sha: check.latest.sha, pass: check.latest.n, approved: check.approved, uncertified, stillFailing: check.stillFailing, ticked, days: daysBetween(ledger.facts.finishedAt, new Date()), headSha: pr.headSha });
+  const body = renderCloseOutBody(state.view, { agentNumber, personNumber, prNumber: pr.number, sha: check.latest.sha, pass: check.latest.n, approved: check.approved, uncertified, stillFailing: check.stillFailing, neverJudged: check.neverJudged, ticked, days: daysBetween(ledger.facts.finishedAt, new Date()), headSha: pr.headSha });
 
   heading('Closing out');
   client.editPrBody(pr.url, body);

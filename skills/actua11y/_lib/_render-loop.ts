@@ -350,6 +350,7 @@ export interface CloseOutInput {
   approved: boolean;
   uncertified: { sha: string; subject: string }[];
   stillFailing: string[];
+  neverJudged: string[];
   ticked: ReadonlySet<string>;
   days: number;
   headSha: string;
@@ -369,7 +370,7 @@ export const renderCloseOutBody = (view: LoopView, input: CloseOutInput): string
   };
   const headline = input.approved
     ? `**The certified commit:** ${shortSha(input.sha)}, approved by certifier pass ${input.pass}.`
-    : `**No certifier approved.** The human round hit its cap. The last commit a certifier checked is ${shortSha(input.sha)}, and these still failed there: ${input.stillFailing.join(', ')}.`;
+    : `**No certifier approved.** The human round hit its cap. The last commit a certifier checked is ${shortSha(input.sha)}, and these still failed there: ${input.stillFailing.join(', ') || 'none'}.${input.neverJudged.length > 0 ? ` These were decided after it, so no certifier ever judged them: ${input.neverJudged.join(', ')}.` : ''}`;
   return [
     '<!-- actua11y:pr v1 closed -->',
     bestFaith(view),

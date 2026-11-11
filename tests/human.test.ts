@@ -7,7 +7,7 @@ import { criteriaAt } from '../skills/actua11y/_lib/_criteria.ts';
 import type { GhIssue } from '../skills/actua11y/_lib/_gh.ts';
 import { closeOutCheck, foundVerbatim, personSources } from '../skills/actua11y/_lib/_human.ts';
 import { nextStep } from '../skills/actua11y/_lib/_cmd-loop.ts';
-import { addHuman, applyPass, decide, initialLedger, startLoop, stopAi, type Ledger } from '../skills/actua11y/_lib/_ledger.ts';
+import { addHuman, applyPass, decide, humanPassesSinceApproval, initialLedger, startLoop, stopAi, type Ledger } from '../skills/actua11y/_lib/_ledger.ts';
 import { validateReport } from '../skills/actua11y/_lib/_report.ts';
 import { makeFacts, makeReport, makeSite } from './_fixtures.ts';
 
@@ -67,4 +67,31 @@ test("while a fail waits on the person's decision, the next step is theirs, not 
   assert.match(waiting.says, /Waiting on the person to decide A1/);
   const decided = decide(reopened, 'A1', { choice: 'fix', reason: null, how: 'Describe the moth' });
   assert.match(nextStep(decided, new Set(['P1', 'P2']), 'https://github.com/AhoyLemon/skills/issues/1').command ?? '', /brief fixer/, 'a fix decision brings the fixer back');
+});
+
+test("a pass that approved never uses up the human round's cap, and at a real cap --at-cap lists a late fix as never judged instead of sticking", () => {
+  let ledger = approvedLedger();
+  const approve: CertifierReport = { schema: CERTIFIER_SCHEMA, used: { tools: ['Read'], pages: ['/'] }, items: ['A1', 'A2'].map((id) => ({ id, fixed: [{ did: 'd', saw: 's' }] })), reran: [], rewalk: { criteria: [], newFails: [], newChecks: [] } };
+  const fail: CertifierReport = { ...approve, items: ['A1', 'A2', 'H1'].map((id) => ({ id, fixed: [{ did: 'd', saw: 's' }] })), rewalk: { criteria: [], newFails: [{ num: '2.1.1', file: 'index.html', line: 6, what: 'A trap', whoItHurts: 'Keyboard users', behaviour: false }], newChecks: [] } };
+  const pass = (report: CertifierReport, n: number): void => {
+    ledger = applyPass(ledger, report, passVerdict(report, new Set(['A1', 'A2'])), { pass: n, sha: `${n}`.repeat(40), at: 'now', runId: `r${n}`, model: 'm', effort: 'high', browser: null, usage: emptyUsage(), dryRun: null, commentUrls: [] }).ledger;
+  };
+  pass(approve, 2);
+  pass(approve, 3);
+  pass(approve, 4);
+  assert.equal(humanPassesSinceApproval(ledger), 0, 'three approving passes leave the whole cap');
+  const late = addHuman(ledger, { words: 'Join is tiny', tag: { kind: 'wcag', num: '2.5.8' }, decision: { choice: 'fix', reason: null, how: 'Make it bigger' } }).ledger;
+  assert.match(nextStep(late, new Set(['P1', 'P2']), 'https://github.com/AhoyLemon/skills/issues/1').command ?? '', /brief fixer/, 'so a fix decided after the third pass still gets a fixer and a certifier');
+  ledger = late;
+  pass(fail, 5);
+  pass(fail, 6);
+  pass(fail, 7);
+  const later = addHuman(ledger, { words: 'The footer links blur together', tag: { kind: 'ux' }, decision: { choice: 'fix', reason: null, how: null } }).ledger;
+  const decided = decide(later, 'A3', { choice: 'accept', reason: 'Later', how: null });
+  const decided2 = decide(decided, 'A4', { choice: 'accept', reason: 'Later', how: null });
+  const settled = decide(decided2, 'A5', { choice: 'accept', reason: 'Later', how: null });
+  assert.match(closeOutCheck(settled, new Set(['P1', 'P2']), false).refusals.join(' '), /at its cap\. Pass --at-cap/);
+  const atCap = closeOutCheck(settled, new Set(['P1', 'P2']), true);
+  assert.deepEqual(atCap.refusals, []);
+  assert.deepEqual(atCap.neverJudged, ['H2'], 'listed plainly, not a dead end');
 });

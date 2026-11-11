@@ -12,7 +12,7 @@ import { criteriaTableFor, prepareRun, requireDryRun } from './_cmd-run.ts';
 import { banner } from './_copy.ts';
 import { axeTagsFor, criteriaAt, levelLabel } from './_criteria.ts';
 import { commitsBetween, currentBranch, headCommit, ignoredIn, porcelain, switchBranch, trackedFiles, treeState } from './_git.ts';
-import { applyPass, budgetLeft, carriedFor, humanPasses, ledgerHash, MAX_HUMAN_PASSES, MIN_PASS_USD, passes, passPlan, type LoopView } from './_ledger.ts';
+import { applyPass, budgetLeft, carriedFor, humanPassesSinceApproval, ledgerHash, MAX_HUMAN_PASSES, MIN_PASS_USD, passes, passPlan, type LoopView } from './_ledger.ts';
 import { ensurePr, loadLoop, postRun, runTarget, saveLoop, type LoopGh } from './_loop.ts';
 import { printChecks, runPreflight } from './_preflight.ts';
 import { formatUsage, plural } from './_render.ts';
@@ -76,7 +76,7 @@ const requireCertifierTurn = (view: LoopView, agentUrl: string): void => {
     return;
   }
   if (ledger.stage !== 'human') throw new Error(`It isn't the certifier's turn. ${nextStep(ledger, new Set(), agentUrl).says}`);
-  if (humanPasses(ledger) >= MAX_HUMAN_PASSES) throw new Error(`The human round already hit its cap of ${MAX_HUMAN_PASSES} certifier runs. Next: close-out --at-cap, which says so plainly`);
+  if (humanPassesSinceApproval(ledger) >= MAX_HUMAN_PASSES) throw new Error(`The human round already hit its cap of ${MAX_HUMAN_PASSES} certifier runs without one approving. Next: close-out --at-cap, which says so plainly`);
 };
 
 export const cmdBriefCertifier = (options: Options, client: LoopGh, backend: Backend): number => {

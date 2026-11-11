@@ -9,7 +9,7 @@ import { banner } from './_copy.ts';
 import { levelLabel } from './_criteria.ts';
 import { FIXER_SHAPE, validateFixerReport } from './_fixer.ts';
 import { branchExists, commitsBetween, commitSubject, createBranch, currentBranch, headCommit, isAncestor, originSlug, parseGithubSlug, porcelain, pushBranch, repoRoot, slugText } from './_git.ts';
-import { agentItems, applyFixer, budgetLeft, fixerRounds, fixerTargets, humanPasses, latestPass, MAX_FIXER_ROUNDS, MAX_HUMAN_PASSES, MIN_PASS_USD, passPlan, roundBase, startLoop, stopAi, waitingOnPerson, type Ledger, type LoopView } from './_ledger.ts';
+import { agentItems, applyFixer, budgetLeft, fixerRounds, fixerTargets, humanPassesSinceApproval, latestPass, MAX_FIXER_ROUNDS, MAX_HUMAN_PASSES, MIN_PASS_USD, passPlan, roundBase, startLoop, stopAi, waitingOnPerson, type Ledger, type LoopView } from './_ledger.ts';
 import { ensurePr, loadLoop, postRun, resolveAgentUrl, runTarget, saveLoop, type LoopGh, type LoopState } from './_loop.ts';
 import { formatUsage, plural } from './_render.ts';
 import { fixerItemsText, renderFixerComments, renderReportBack } from './_render-loop.ts';
@@ -62,7 +62,7 @@ export const nextStep = (ledger: Ledger, ticked: ReadonlySet<string>, agentUrl: 
     return judged === null || judged.pass !== latest?.n;
   });
   const lastHuman = ledger.rounds.filter((round) => round.stage === 'human').at(-1);
-  const capped = humanPasses(ledger) >= MAX_HUMAN_PASSES && latest?.approved !== true;
+  const capped = humanPassesSinceApproval(ledger) >= MAX_HUMAN_PASSES;
   if (capped) return { says: `The human round hit its cap of ${MAX_HUMAN_PASSES} certifier runs without an approving pass. Close-out can still happen, and says so plainly.`, command: `node runner.ts close-out ${issue} --at-cap` };
   if (lastHuman?.kind === 'fixer') return { says: `Fixer round ${lastHuman.n} is recorded, so a blind certifier guards it next.`, command: `node runner.ts run certifier ${issue}` };
   const person: string[] = [];

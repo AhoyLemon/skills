@@ -289,7 +289,11 @@ export const passes = (ledger: Ledger): Round[] => ledger.rounds.filter((round) 
 
 export const latestPass = (ledger: Ledger): Round | undefined => passes(ledger).at(-1);
 
-export const humanPasses = (ledger: Ledger): number => passes(ledger).filter((round) => round.stage === 'human').length;
+// The human round's cap counts the certifier runs since the last one that approved, so a pass that approved never uses up the turns a later fix decision needs.
+export const humanPassesSinceApproval = (ledger: Ledger): number => {
+  const human = passes(ledger).filter((round) => round.stage === 'human');
+  return human.length - (human.map((round) => round.approved).lastIndexOf(true) + 1);
+};
 
 export const insideTarget = (num: string, level: Level): boolean => {
   const criterion = criterionByNum(num);
