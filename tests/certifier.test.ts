@@ -83,3 +83,12 @@ test('the verdict is computed: a 🕵️ moves instead of blocking, a fail outsi
   const newFail = { ...handedOver, rewalk: { ...report.rewalk, newFails: [{ num: '2.1.1', file: 'index.html', line: 6, what: 'Trap', whoItHurts: 'Keyboard users', behaviour: false }] } };
   assert.equal(passVerdict(newFail, new Set(['A1', 'A2'])).approved, false);
 });
+
+test("a re-walk entry that isn't an object is refused, never dropped, so a new fail can't slip past the verdict", () => {
+  for (const list of ['newFails', 'newChecks', 'criteria'] as const) {
+    const draft = good();
+    const rewalk = draft['rewalk'] as Record<string, unknown[]>;
+    rewalk[list] = [...(rewalk[list] ?? []), 'Escape leaves the menu open'];
+    assert.ok(errorsOf(draft).some((error) => new RegExp(`rewalk\\.${list}\\[\\d+\\]: must be an object`).test(error)), list);
+  }
+});

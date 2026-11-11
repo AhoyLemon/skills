@@ -154,6 +154,11 @@ const checkRewalk = (checker: Checker, value: unknown, context: CertifierContext
     return rewalk;
   }
   checkKeys(checker, 'report.rewalk', value, REWALK_KEYS);
+  // A list entry that isn't an object would otherwise vanish without a word, and a fail the re-walk found would never reach the verdict.
+  const objectNeeded = (where: string): undefined => {
+    checker.errors.push(`${where}: must be an object`);
+    return undefined;
+  };
   const nums = new Set(context.criteria.map((criterion) => criterion.num));
   const atTarget = (where: string, num: unknown): num is string => {
     if (typeof num === 'string' && nums.has(num)) return true;
@@ -161,7 +166,7 @@ const checkRewalk = (checker: Checker, value: unknown, context: CertifierContext
     return false;
   };
   rewalk.criteria = listOf(checker, 'report.rewalk.criteria', value['criteria'], (where, entry) => {
-    if (!isRecord(entry)) return undefined;
+    if (!isRecord(entry)) return objectNeeded(where);
     checkKeys(checker, where, entry, WALKED_KEYS);
     if (!atTarget(where, entry['num'])) return undefined;
     if (!nonEmpty(entry['did'])) {
@@ -176,14 +181,14 @@ const checkRewalk = (checker: Checker, value: unknown, context: CertifierContext
   if (missing.length > 0) checker.errors.push(`report.rewalk.criteria: missing ${missing.length} criteria at the target: ${missing.join(', ')}. The re-walk covers every one`);
   if (walked.size !== rewalk.criteria.length) checker.errors.push('report.rewalk.criteria: each criterion appears once');
   rewalk.newFails = listOf(checker, 'report.rewalk.newFails', value['newFails'], (where, entry) => {
-    if (!isRecord(entry)) return undefined;
+    if (!isRecord(entry)) return objectNeeded(where);
     const { num, ...rest } = entry;
     if (!atTarget(where, num)) return undefined;
     const fail = checkFail(checker, where, rest, context);
     return fail ? { ...fail, num } : undefined;
   });
   rewalk.newChecks = listOf(checker, 'report.rewalk.newChecks', value['newChecks'], (where, entry) => {
-    if (!isRecord(entry)) return undefined;
+    if (!isRecord(entry)) return objectNeeded(where);
     const { num, ...rest } = entry;
     if (!atTarget(where, num)) return undefined;
     const check = checkCheck(checker, where, rest);
