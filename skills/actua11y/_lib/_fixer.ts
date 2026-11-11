@@ -10,7 +10,8 @@ export const OUTCOMES: readonly Outcome[] = ['fixed', 'partial', 'couldnt'];
 export interface FixerFinding {
   id: string;
   outcome: Outcome;
-  commit?: string;
+  // Every commit that holds this finding's change, oldest first. One, unless a fix took a follow-up, or an attempt was reverted.
+  commits?: string[];
   how?: string;
   left?: string;
   why?: string;
@@ -35,7 +36,7 @@ export interface FixerContext {
 export type FixerCheck = { ok: true; report: FixerReport } | { ok: false; errors: string[] };
 
 const TOP_KEYS = new Set(['schema', 'brief', 'findings']);
-const FINDING_KEYS = new Set(['id', 'outcome', 'commit', 'how', 'left', 'why', 'needsPerson']);
+const FINDING_KEYS = new Set(['id', 'outcome', 'commit', 'commits', 'how', 'left', 'why', 'needsPerson']);
 
 // A short sha is fine as long as it names exactly one of this round's commits.
 const resolveCommit = (commit: string, commits: string[]): string | null => {
@@ -67,15 +68,19 @@ const checkFinding = (checker: Checker, where: string, value: Record<string, unk
     return undefined;
   }
   const committed = outcome !== 'couldnt';
-  let commit: string | undefined;
-  if (committed) {
-    if (!nonEmpty(value['commit'])) checker.errors.push(`${where}.commit: required for ${outcome} (the commit that holds this change)`);
-    else {
-      const resolved = resolveCommit(value['commit'], context.commits);
-      if (resolved === null) checker.errors.push(`${where}.commit: "${value['commit']}" isn't one of this round's commits on the branch`);
-      else commit = resolved;
+  // One commit, or several when a fix took a follow-up. A finding you couldn't fix may still cite an attempt and its revert, so every commit stays accounted for.
+  if (value['commit'] !== undefined && value['commits'] !== undefined) checker.errors.push(`${where}: give commit or commits, not both`);
+  const named = value['commits'] !== undefined ? value['commits'] : value['commit'] !== undefined ? [value['commit']] : [];
+  const commits: string[] = [];
+  if (!Array.isArray(named) || !named.every(nonEmpty)) checker.errors.push(`${where}.commits: must be a list of commit shas`);
+  else {
+    for (const sha of named) {
+      const resolved = resolveCommit(sha, context.commits);
+      if (resolved === null) checker.errors.push(`${where}.commit: "${sha}" isn't one of this round's commits on the branch`);
+      else if (!commits.includes(resolved)) commits.push(resolved);
     }
-  } else if (value['commit'] !== undefined) checker.errors.push(`${where}.commit: a finding you couldn't fix has no commit`);
+    if (committed && named.length === 0) checker.errors.push(`${where}.commit: required for ${outcome} (the commit that holds this change, or commits if it took more than one)`);
+  }
   const how = text(checker, `${where}.how`, value['how'], committed, 'what you changed, and why that fixes it for people');
   const left = text(checker, `${where}.left`, value['left'], outcome === 'partial', "what's still not fixed");
   const why = text(checker, `${where}.why`, value['why'], outcome === 'couldnt', "why you couldn't fix it");
@@ -85,7 +90,7 @@ const checkFinding = (checker: Checker, where: string, value: Record<string, unk
   if (needsPerson !== undefined && !context.allowNeedsPerson) checker.errors.push(`${where}.needsPerson: not in the human round. Everything here is already the person's, so say partial or couldnt, and why, and they'll decide`);
   else if (outcome === 'fixed' && needsPerson !== undefined) checker.errors.push(`${where}.needsPerson: a fixed finding doesn't need a person. Say partial or couldnt if part of it does`);
   const finding: FixerFinding = { id, outcome };
-  if (commit) finding.commit = commit;
+  if (commits.length > 0) finding.commits = commits;
   if (how) finding.how = how;
   if (left) finding.left = left;
   if (why) finding.why = why;
@@ -124,7 +129,7 @@ export const validateFixerReport = (input: unknown, context: FixerContext): Fixe
     if (missing.length > 0) checker.errors.push(`report.findings: missing ${missing.join(', ')}. Every finding gets fixed, partial or couldnt, never silence`);
   }
   // Every commit on the branch since the round started has to be accounted for, so nothing lands that no finding explains.
-  const cited = new Set([...findings.values()].map((finding) => finding.commit).filter((sha): sha is string => sha !== undefined));
+  const cited = new Set([...findings.values()].flatMap((finding) => finding.commits ?? []));
   const uncited = context.commits.filter((sha) => !cited.has(sha));
   if (uncited.length > 0) checker.errors.push(`commits on the branch that no finding cites: ${uncited.map((sha) => sha.slice(0, 12)).join(', ')}. Name each one in the finding it fixes`);
 
@@ -139,6 +144,7 @@ export const FIXER_SHAPE = `interface FixerReport {
     id: string;                  // "A3"
     outcome: "fixed" | "partial" | "couldnt";
     commit?: string;             // required for fixed and partial: the commit that holds the change
+    commits?: string[];          // instead of commit, when a fix took more than one, oldest first. A couldnt may cite an attempt it reverted
     how?: string;                // required for fixed and partial: what you changed
     left?: string;               // required for partial: what's still not fixed
     why?: string;                // required for couldnt: why not

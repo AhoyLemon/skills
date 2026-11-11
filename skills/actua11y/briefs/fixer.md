@@ -10,7 +10,7 @@ You're fixing accessibility problems in this repository, {{REPO_ROOT}}, on the b
 - **Fix for people, not for a checker.** The goal is that the person who's hurt can now do the thing. Quieting axe isn't the goal.
 - **Where a person said how they want it solved, solve it their way.** If their way can't work, say so in your report rather than quietly doing something else.
 - **Prefer native HTML to ARIA.** A clickable `div` becomes a `button`, not a `div` with a role. Reach for ARIA only where no native element does the job.
-- **One commit per finding**, in this project's own commit style. If one change genuinely fixes two findings, commit it once and cite that commit for both.
+- **One commit per finding**, in this project's own commit style. If one change genuinely fixes two findings, commit it once and cite that commit for both. If a finding takes a follow-up commit, cite them all with `commits`, oldest first. If you try something and revert it, cite both under that finding too, since every commit has to be accounted for.
 - **Follow the project's own conventions** for code, markup and styles.
 - **Leave no trace of this audit in the code.** No comments, files or notes that mention actua11y, a finding's id or this list. The certifier reads the code.
 - **Don't push, and don't touch GitHub.** No `gh`, no issues, no PR. The runner pushes and posts. Don't rebase, amend or squash anything either.

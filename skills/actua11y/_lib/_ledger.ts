@@ -367,7 +367,7 @@ export const applyFixer = (ledger: Ledger, report: FixerReport, input: FixerRoun
   const next = clone(ledger);
   const stage = next.stage === 'human' ? 'human' : 'ai';
   for (const finding of report.findings) {
-    const claim: Claim = { round: input.round, outcome: finding.outcome, commit: finding.commit ?? null };
+    const claim: Claim = { round: input.round, outcome: finding.outcome, commit: finding.commits?.at(-1) ?? null };
     const human = next.human.find((entry) => entry.id === finding.id);
     if (human) human.claim = claim;
     const item = next.items.find((entry) => entry.id === finding.id);

@@ -60,7 +60,7 @@ const loopView = (): LoopView => {
   const result = validateReport(makeReport('A'), { criteria: criteriaAt('A'), repoRoot: makeSite(), tracked: new Set(['index.html', 'css/site.css']) });
   if (!result.ok) throw new Error(result.errors.join('\n'));
   const started = startLoop(initialLedger(result.report, makeFacts('A'), { url: 'http://127.0.0.1:4173/', serve: null }), { branch: 'actua11y-a-1', pr: null, budgetUsd: 60 });
-  const ledger = applyFixer(started, { schema: FIXER_SCHEMA, brief: 'x', findings: [{ id: 'A1', outcome: 'fixed', commit: 'a'.repeat(40), how: 'SECRET FIXER ACCOUNT of the alt text' }, { id: 'A2', outcome: 'couldnt', why: 'SECRET FIXER REASON' }] }, { round: 1, sha: 'a'.repeat(40), base: 'b'.repeat(40), at: 'now', reported: { tokens: 1, minutes: 1 }, commentUrls: [] });
+  const ledger = applyFixer(started, { schema: FIXER_SCHEMA, brief: 'x', findings: [{ id: 'A1', outcome: 'fixed', commits: ['a'.repeat(40)], how: 'SECRET FIXER ACCOUNT of the alt text' }, { id: 'A2', outcome: 'couldnt', why: 'SECRET FIXER REASON' }] }, { round: 1, sha: 'a'.repeat(40), base: 'b'.repeat(40), at: 'now', reported: { tokens: 1, minutes: 1 }, commentUrls: [] });
   return { ledger, finder: result.report, passes: new Map() };
 };
 
