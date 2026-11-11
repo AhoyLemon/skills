@@ -5,7 +5,7 @@ import { emptyUsage } from '../skills/actua11y/_lib/_backend.ts';
 import { CERTIFIER_SCHEMA, passVerdict, type CertifierReport } from '../skills/actua11y/_lib/_certifier.ts';
 import { criteriaAt } from '../skills/actua11y/_lib/_criteria.ts';
 import { FIXER_SCHEMA } from '../skills/actua11y/_lib/_fixer.ts';
-import { addHuman, applyFixer, applyPass, decide, initialLedger, ledgerBlock, parseLedger, passPlan, startLoop, waitingOnPerson, type Ledger } from '../skills/actua11y/_lib/_ledger.ts';
+import { addHuman, applyFixer, applyPass, carriedFor, decide, initialLedger, ledgerBlock, parseLedger, passPlan, startLoop, waitingOnPerson, type Ledger } from '../skills/actua11y/_lib/_ledger.ts';
 import { GITHUB_LIMIT, renderAgentIssue } from '../skills/actua11y/_lib/_render.ts';
 import { validateReport, type FinderReport } from '../skills/actua11y/_lib/_report.ts';
 import { makeFacts, makeReport, makeSite } from './_fixtures.ts';
@@ -102,4 +102,12 @@ test('a long loop still fits: with 200 fails after six passes, the whole agent i
   assert.ok(agent.body.length <= GITHUB_LIMIT, `the body is ${agent.body.length} characters`);
   assert.ok(agent.comments.some((comment) => comment.kind === 'fails'), 'the rows moved into comments, and the ledger stayed');
   assert.deepEqual(parseLedger(agent.body), ledger);
+});
+
+test("a behaviour fail a re-walk finds carries its own steps into every later pass, so they're run again word for word", () => {
+  const steps = ['Load /', 'Open the menu', 'Press Escape three times', 'The menu is still open'];
+  const report: CertifierReport = { ...failing([]), items: [{ id: 'A1', fixed: [{ did: 'd', saw: 's' }] }, { id: 'A2', fixed: [{ did: 'd', saw: 's' }] }], rewalk: { criteria: [], newFails: [{ num: '2.1.1', file: 'index.html', line: 6, what: 'Escape doesn\'t close the menu', whoItHurts: 'Keyboard users', behaviour: true, repro: steps }], newChecks: [] } };
+  const ledger = applyPass(fixerRound(started(), 1), report, passVerdict(report, new Set(['A1', 'A2'])), passInput(1)).ledger;
+  const view = { ledger, finder: finder(), passes: new Map([[1, report]]) };
+  assert.deepEqual(carriedFor(view, 'A3').map(({ from, steps: carried }) => ({ from, carried })), [{ from: 1, carried: steps }]);
 });

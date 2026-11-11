@@ -261,9 +261,12 @@ const engineOf = (browser: { channel: string; version: string } | null): string 
 export const carriedFor = (view: LoopView, id: string): CarriedRepro[] => {
   const repros: CarriedRepro[] = [];
   const agent = view.ledger.items.find((item) => item.id === id);
-  if (agent?.source.kind === 'finder') {
+  // A behaviour fail carries the steps that proved it, whoever found it: the finder (from 0), or a certifier's re-walk (from the pass that found it, which never judged it, so it can't clash with a later ❌).
+  if (agent) {
     const { fail } = failOf(view, agent);
-    if (fail.behaviour && fail.repro && fail.repro.length > 0) repros.push({ id, from: 0, steps: fail.repro, file: fail.file, line: fail.line, what: fail.what, engine: engineOf(view.ledger.facts.browser) });
+    const from = agent.source.kind === 'finder' ? 0 : agent.source.pass;
+    const engine = agent.source.kind === 'finder' ? engineOf(view.ledger.facts.browser) : engineOf(roundOf(view.ledger, 'certifier', from)?.browser ?? null);
+    if (fail.behaviour && fail.repro && fail.repro.length > 0) repros.push({ id, from, steps: fail.repro, file: fail.file, line: fail.line, what: fail.what, engine });
   }
   const carried = agent?.carried ?? view.ledger.human.find((item) => item.id === id)?.carried ?? [];
   for (const pass of carried) {
