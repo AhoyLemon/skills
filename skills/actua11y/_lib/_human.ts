@@ -8,9 +8,19 @@ export const personSources = (person: GhIssue): string[] => [regionOf(person.bod
 
 const squash = (text: string): string => text.replace(/\s+/g, ' ').trim();
 
+// Enough of their words that a fragment can't stand in for what they meant: "fine" out of "this is not fine", say.
+export const MIN_WORDS = 3;
+
+export const wordCount = (words: string): number => squash(words).split(' ').filter((word) => word !== '').length;
+
+const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+// The words have to appear whole, starting and ending at word boundaries, so "fine" never matches inside "define".
 export const foundVerbatim = (words: string, sources: string[]): boolean => {
   const wanted = squash(words);
-  return wanted !== '' && sources.some((source) => squash(source).includes(wanted));
+  if (wanted === '') return false;
+  const pattern = new RegExp(`(?:^|[^\\p{L}\\p{N}])${escapeRegExp(wanted)}(?:$|[^\\p{L}\\p{N}])`, 'u');
+  return sources.some((source) => pattern.test(squash(source)));
 };
 
 export interface CloseOutCheck {

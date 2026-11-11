@@ -95,3 +95,9 @@ test("a pass that approved never uses up the human round's cap, and at a real ca
   assert.deepEqual(atCap.refusals, []);
   assert.deepEqual(atCap.neverJudged, ['H2'], 'listed plainly, not a dead end');
 });
+
+test('their words count only whole, so "fine" never matches inside "define"', () => {
+  assert.ok(!foundVerbatim('fine', ['Please define the scope']));
+  assert.ok(!foundVerbatim('The Join butt', ['The Join button is tiny']));
+  assert.ok(foundVerbatim('This is not fine (really).', ['Honestly. This is not fine (really). Thanks']));
+});

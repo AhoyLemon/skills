@@ -8,7 +8,7 @@ import { banner } from './_copy.ts';
 import { criterionByNum } from './_criteria.ts';
 import { onExit } from './_exec.ts';
 import { commitsBetween, commitSubject, currentBranch, headCommit, repoRoot, upstreamState } from './_git.ts';
-import { closeOutCheck, foundVerbatim, personSources } from './_human.ts';
+import { closeOutCheck, foundVerbatim, MIN_WORDS, personSources, wordCount } from './_human.ts';
 import { addHuman, decide, insideTarget, type Decision, type Ledger } from './_ledger.ts';
 import { saveLoop, type LoopGh } from './_loop.ts';
 import { plural } from './_render.ts';
@@ -18,15 +18,21 @@ import { serveStatic } from './_serve.ts';
 // Every refusal ends the same way: the words have to be the person's, in their issue, before anything records them.
 const NOT_FOUND = "in the person's issue, word for word. Ask them to write it in the section for their own notes (or in a comment on their issue), then record it exactly as they wrote it";
 
+const enoughWords = (what: string, words: string): void => {
+  if (wordCount(words) < MIN_WORDS) throw new Error(`${what} needs at least ${MIN_WORDS} of the person's words, so a fragment can't stand in for what they meant. Quote more of what they wrote`);
+};
+
 const decisionFrom = (options: Options, sources: string[]): Decision => {
   if (!options.decision) throw new Error('Pass --decision fix, accept or na. It\'s the person\'s call, so ask them');
   if (options.decision === 'fix') {
     if (options.reason) throw new Error('A fix takes --how, the person\'s words on how they want it solved, not --reason');
+    if (options.how) enoughWords('How they want it solved', options.how);
     if (options.how && !foundVerbatim(options.how, sources)) throw new Error(`How they want it solved isn't ${NOT_FOUND}`);
     return { choice: 'fix', reason: null, how: options.how?.trim() ?? null };
   }
   if (options.how) throw new Error('--how is only for a fix. Accepting as is, or calling it not applicable, takes --reason');
   if (!options.reason) throw new Error(`Accepting as is, or calling it not applicable, needs the person's reason. Pass --reason with their words`);
+  enoughWords('The reason', options.reason);
   if (!foundVerbatim(options.reason, sources)) throw new Error(`The reason isn't ${NOT_FOUND}`);
   return { choice: options.decision, reason: options.reason, how: null };
 };
@@ -42,6 +48,7 @@ export const cmdRecordFinding = (options: Options, client: LoopGh): number => {
   requireLoop(ledger);
   if (!options.words) throw new Error('Pass --words with what the person wrote, exactly');
   const sources = personSources(state.person);
+  enoughWords('A finding', options.words);
   if (!foundVerbatim(options.words, sources)) throw new Error(`Those words aren't ${NOT_FOUND}`);
   if (!options.criterion && !options.ux) throw new Error('Pass --criterion <num> for a WCAG finding, or --ux for a UX one. Ask the person if it isn\'t clear');
   if (options.criterion && !criterionByNum(options.criterion)) throw new Error(`${options.criterion} isn't a WCAG 2.2 criterion`);

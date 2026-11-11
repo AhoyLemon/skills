@@ -154,7 +154,7 @@ export const renderFixerComments = (view: LoopView, report: FixerReport, input: 
     '',
     ...input.commits.map((commit) => `- ${shortSha(commit.sha)} ${safeText(commit.subject)}`),
     '',
-    ...(input.before.length === 0 ? [] : [`### The person's own commits, made before this round (${input.before.length})`, '', 'The fixer doesn\'t claim these. The next certifier guards them like everything else.', '', ...input.before.map((commit) => `- ${shortSha(commit.sha)} ${safeText(commit.subject)}`), '']),
+    ...(input.before.length === 0 ? [] : [`### Commits made before this round began (${input.before.length})`, '', 'This fixer doesn\'t claim these. The runner can\'t tell who made them: the person by hand, or an earlier fixer whose report was never recorded. The next certifier guards them like everything else.', '', ...input.before.map((commit) => `- ${shortSha(commit.sha)} ${safeText(commit.subject)}`), '']),
   ].join('\n');
   return fitWithRaw(body, rawBlocks('fixer', { round: String(input.round), report: input.reportId }, "The fixer's raw report", report));
 };

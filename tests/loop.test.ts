@@ -199,7 +199,7 @@ test('a whole loop runs on GitHub alone: two fixer rounds, two passes, a human f
   const tall = commit(root, 'css/site.css', 'body { color: #777; }', 'body { color: #777; }\nbutton { min-height: 44px; }', 'Make Join at least 44px tall');
   assert.equal(quietly(() => cmdRecordFixer(options(root, agentUrl), gh, fenced({ schema: FIXER_SCHEMA, brief: brief3.id, findings: [{ id: 'H1', outcome: 'partial', commit: tall, how: 'Taller', left: 'Width', needsPerson: 'A design call' }] }))), 1, 'everything here is already the person\'s, so nothing moves to them');
   assert.equal(quietly(() => cmdRecordFixer(options(root, agentUrl, { tokens: 20_000, minutes: 2 }), gh, fenced({ schema: FIXER_SCHEMA, brief: brief3.id, findings: [{ id: 'H1', outcome: 'fixed', commit: tall, how: 'Every button is at least 44px tall now, Join included' }] }))), 0, "the person's own commit came before the brief, so the fixer doesn't have to cite it");
-  assert.match(pr?.comments.at(-1)?.body ?? '', /## actua11y · fixer round 3, in the human round[\s\S]*### The person's own commits, made before this round \(1\)[\s\S]*Say what the page is for in its title/);
+  assert.match(pr?.comments.at(-1)?.body ?? '', /## actua11y · fixer round 3, in the human round[\s\S]*### Commits made before this round began \(1\)[\s\S]*Say what the page is for in its title/);
   assert.match(gh.issues.get(person.url)?.body ?? '', /\*\*H1\*\*[\s\S]*?- \*\*Fixer:\*\* claimed at `[0-9a-f]{12}` by fixer round 3/);
   ledger = ledgerOf(gh, agentUrl);
   assert.match(nextStep(ledger, new Set(['P1']), agentUrl).command ?? '', /run certifier/);
@@ -267,4 +267,18 @@ test("a certifier run that can never be filed still counts against the budget, o
   assert.equal(ledgerHash(after.view.ledger), ledgerHash(before.view.ledger), 'spend alone never makes a pass look stale');
   saveLoop(gh, after, { ledger: after.view.ledger, passes: after.view.passes });
   assert.equal(Number((loadLoop(gh, agentUrl).view.ledger.spentUsd - spent).toFixed(2)), 4.25, 'saved, and still counted once');
+});
+
+test('loop start picks up the branch a run that stopped partway left at the audited commit', () => {
+  const { root, remote } = makeRepo();
+  const gh = fakeGithub(SLUG, remote);
+  const validated = validateReport(makeReport('A'), { criteria: criteriaAt('A'), repoRoot: root, tracked: new Set(['index.html', 'css/site.css']) });
+  if (!validated.ok) throw new Error(validated.errors.join('\n'));
+  const filed = emptyFiled();
+  fileIssues({ report: validated.report, facts: { ...makeFacts('A'), commit: git(root, 'rev-parse', 'HEAD') }, site: { url: null, serve: '.' }, slug: SLUG, filed, gh, save: () => undefined, progress: () => undefined });
+  const agentUrl = filed.agentUrl ?? '';
+  git(root, 'branch', 'actua11y-a-1');
+  assert.equal(quietly(() => cmdLoopStart(options(root, agentUrl), gh)), 0);
+  assert.equal(git(root, 'rev-parse', '--abbrev-ref', 'HEAD'), 'actua11y-a-1');
+  assert.equal(ledgerOf(gh, agentUrl).loop?.branch, 'actua11y-a-1');
 });

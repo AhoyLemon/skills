@@ -8,7 +8,7 @@ import { fillTemplate, readBrief } from './_brief.ts';
 import { banner } from './_copy.ts';
 import { levelLabel } from './_criteria.ts';
 import { FIXER_SHAPE, validateFixerReport } from './_fixer.ts';
-import { branchExists, commitsBetween, commitSubject, createBranch, currentBranch, headCommit, isAncestor, originSlug, parseGithubSlug, porcelain, pushBranch, repoRoot, slugText } from './_git.ts';
+import { branchExists, branchSha, commitsBetween, commitSubject, createBranch, currentBranch, headCommit, isAncestor, originSlug, parseGithubSlug, porcelain, pushBranch, repoRoot, slugText, switchBranch } from './_git.ts';
 import { agentItems, applyFixer, budgetLeft, fixerRounds, fixerTargets, humanPassesSinceApproval, latestPass, MAX_FIXER_ROUNDS, MAX_HUMAN_PASSES, MIN_PASS_USD, passPlan, roundBase, startLoop, stopAi, waitingOnPerson, type Ledger, type LoopView } from './_ledger.ts';
 import { ensurePr, loadLoop, postRun, resolveAgentUrl, runTarget, saveLoop, type LoopGh, type LoopState } from './_loop.ts';
 import { formatUsage, plural } from './_render.ts';
@@ -92,12 +92,15 @@ export const cmdLoopStart = (options: Options, client: LoopGh): number => {
   if (porcelain(root).length > 0) throw new Error('The working tree has uncommitted or untracked changes. Commit, stash or remove them first: the loop cuts a branch from the audited commit');
   if (options.budgetUsd < ledger.spentUsd + MIN_PASS_USD) throw new Error(`A $${options.budgetUsd} budget leaves no room: $${ledger.spentUsd.toFixed(2)} is already spent on the dry run and the finder. Pass a bigger --budget-usd`);
   const branch = options.branch ?? `actua11y-${ledger.facts.level.toLowerCase()}-${issueNumber(agentUrl)}`;
-  if (branchExists(root, branch)) throw new Error(`A branch called ${branch} already exists. Pass --branch with another name, in this project's own style if it has one`);
+  // A branch still sitting at the audited commit is this command's own, left by a run that stopped partway, so a rerun picks it up. Anything else is someone else's work.
+  const reuse = branchExists(root, branch);
+  if (reuse && branchSha(root, branch) !== ledger.facts.commit) throw new Error(`A branch called ${branch} already exists with other commits on it. Pass --branch with another name, in this project's own style if it has one`);
 
   heading('Starting the loop');
-  createBranch(root, branch, ledger.facts.commit);
+  if (reuse) switchBranch(root, branch);
+  else createBranch(root, branch, ledger.facts.commit);
   pushBranch(root, branch);
-  okLine(`cut ${branch} from the audited commit ${ledger.facts.commit.slice(0, 12)} and pushed it`);
+  okLine(`${reuse ? 'picked up' : 'cut'} ${branch} at the audited commit ${ledger.facts.commit.slice(0, 12)} and pushed it`);
   const next = startLoop(ledger, { branch, pr: null, budgetUsd: options.budgetUsd });
   const view: LoopView = { ...state.view, ledger: next };
   if (next.stage === 'human') {
@@ -206,7 +209,7 @@ export const cmdRecordFixer = (options: Options, client: LoopGh, input: string |
   heading(`Recording fixer round ${brief.round}`);
   if (commits.length + before.length > 0) {
     pushBranch(root, loop.branch);
-    okLine(`pushed ${plural(commits.length, 'commit', 'commits')} from the fixer${before.length > 0 ? ` and ${plural(before.length, 'commit', 'commits')} the person made first` : ''} to ${loop.branch}`);
+    okLine(`pushed ${plural(commits.length, 'commit', 'commits')} from the fixer${before.length > 0 ? ` and ${plural(before.length, 'commit', 'commits')} made before this round` : ''} to ${loop.branch}`);
   }
   const pr = ensurePr(client, ledger, state.view, agentUrl, commitsBetween(root, ledger.facts.commit, head).length > 0);
   if (pr && !ledger.loop?.pr) okLine(`opened the draft PR: ${pr}`);

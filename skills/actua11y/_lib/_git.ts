@@ -137,3 +137,5 @@ export const isAncestor = (root: string, ancestor: string, of: string): boolean 
 export const commitsBetween = (root: string, base: string, head: string): string[] => git(root, ['rev-list', '--reverse', `${base}..${head}`]).split('\n').filter((sha) => sha !== '');
 
 export const commitSubject = (root: string, sha: string): string => git(root, ['log', '-1', '--format=%s', sha]);
+
+export const branchSha = (root: string, branch: string): string => git(root, ['rev-parse', `refs/heads/${branch}`]);

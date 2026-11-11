@@ -193,3 +193,9 @@ test("two runs of the same pass post apart and load apart, so a rerun after a ha
   assert.equal((readRaw(both, 'certifier', { pass: '1', run: 'run-b' }) as CertifierReport).rewalk.criteria[0]?.did, 'the second run');
   assert.equal((readRaw(both, 'certifier', { pass: '1', run: 'run-a' }) as CertifierReport).rewalk.criteria[0]?.did, 'the first run');
 });
+
+test("the person's issue title counts only what the finder filed, since a title is never edited afterwards", () => {
+  const view = viewOf(validReport('A'));
+  const moved = { ...view, ledger: { ...view.ledger, items: view.ledger.items.map((item) => (item.id === 'A1' ? { ...item, status: 'moved' as const, moved: { by: 'cap' as const, at: 1, why: 'cap', check: null } } : item)) } };
+  assert.equal(renderPersonIssue(moved, { agentUrl: AGENT_URL }, freshKept()).title, renderPersonIssue(view, { agentUrl: AGENT_URL }, freshKept()).title);
+});

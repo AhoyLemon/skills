@@ -348,7 +348,8 @@ export const renderPersonIssue = (view: LoopView, links: { agentUrl: string }, k
     ].join('\n');
   };
 
-  const title = `actua11y: WCAG 2.2 ${facts.level}, for a person (${plural(ledger.checks.length, 'check', 'checks')}${moved.length > 0 ? `, ${plural(moved.length, 'fail', 'fails')} to decide` : ''})`;
+  // A title is set once, at filing, and never edited, so it counts only what the finder filed.
+  const title = `actua11y: WCAG 2.2 ${facts.level}, for a person (${plural(tallyOf(finder).checkItems, 'check', 'checks')})`;
   const inline = compose(true);
   if (inline.length <= GITHUB_LIMIT) return { title, body: inline, comments: [] };
   const body = compose(false);

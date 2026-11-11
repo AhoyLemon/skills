@@ -134,7 +134,7 @@ Record each one with the runner, in their words, which it checks against their i
 - `node <base>/runner.ts record finding --issue <n> --words "<their words>" (--criterion <num> | --ux) [--check <P4>] --decision fix|accept|na [--how "<their words>" | --reason "<their words>"]`
 - `node <base>/runner.ts record decision --issue <n> --item <A7 or H2> --decision fix|accept|na [--how "<their words>" | --reason "<their words>"]`
 
-Ask whether each finding is a WCAG criterion (which one) or a UX problem. The runner works out the level, and whether it's inside the target, from the table. Findings outside the target are recorded and fixed if they want, and never hold up close-out. `--check` links a finding to the check it came from. `--how` is how they want it solved, for a fix, and `--reason` is why, for accept or n/a. If any of their words aren't in their issue yet, ask them to write them there. Don't type them in for them.
+Ask whether each finding is a WCAG criterion (which one) or a UX problem. The runner works out the level, and whether it's inside the target, from the table. Findings outside the target are recorded and fixed if they want, and never hold up close-out. `--check` links a finding to the check it came from. `--how` is how they want it solved, for a fix, and `--reason` is why, for accept or n/a. The runner wants at least three of their words for each, matched whole, so a fragment can't stand in for what they meant. If any of their words aren't in their issue yet, ask them to write them there. Don't type them in for them.
 
 Then the fixes:
 
