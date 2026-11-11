@@ -31,6 +31,8 @@ export interface Options {
   ux: boolean;
   decision: Choice | null;
   reason: string | null;
+  how: string | null;
+  check: string | null;
   item: string | null;
   tokens: number | null;
   minutes: number | null;
@@ -85,6 +87,8 @@ export const parseOptions = (argv: string[], backend: Backend): Options => {
       ux: { type: 'boolean', default: false },
       decision: { type: 'string' },
       reason: { type: 'string' },
+      how: { type: 'string' },
+      check: { type: 'string' },
       item: { type: 'string' },
       tokens: { type: 'string' },
       minutes: { type: 'string' },
@@ -126,6 +130,8 @@ export const parseOptions = (argv: string[], backend: Backend): Options => {
     ux: values.ux,
     decision,
     reason: values.reason ?? null,
+    how: values.how ?? null,
+    check: values.check ?? null,
     item: values.item ?? null,
     tokens: optionalNumber('tokens', values.tokens),
     minutes: optionalNumber('minutes', values.minutes),
@@ -150,8 +156,8 @@ Fix and certify (every one takes --issue <the agent issue's number>, or finds th
   node runner.ts brief certifier prints what the next certifier pass will be told
   node runner.ts run certifier   [--url <url> | --serve <dir>] [--allow-ignored <path>...], then file --run <run-id>
   node runner.ts loop stop       ends the AI rounds now, as if the cap hit
-  node runner.ts record finding  --words "<their words>" (--criterion <num> | --ux) --decision fix|accept|na [--reason "<their words>"]
-  node runner.ts record decision --item <id> --decision fix|accept|na [--reason "<their words>"]
+  node runner.ts record finding  --words "<their words>" (--criterion <num> | --ux) [--check <P id>] --decision fix|accept|na [--how "<their words>" | --reason "<their words>"]
+  node runner.ts record decision --item <id> --decision fix|accept|na [--how "<their words>" | --reason "<their words>"]
   node runner.ts close-out       [--uncertified-ok] [--at-cap]
   node runner.ts status          where the loop stands, rebuilt from GitHub alone, and what to run next
   node runner.ts serve           --serve <dir>   serves a static site on localhost until stopped

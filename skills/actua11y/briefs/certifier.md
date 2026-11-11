@@ -38,7 +38,7 @@ Give each item exactly one of these:
 
 {{CARRIED}}
 
-Run each one exactly as written: the same keys, the same number of presses, in the same order, on the engine named if you can. One certifier once pressed Escape three times on a dialog and watched it close. The next, on the same commit with the same brief, pressed it twice, saw it stay open, and found no fail. One commit, two verdicts. In `reran`, copy each one's steps word for word and say what you saw. If it still reproduces, its item is `notFixed`, whatever else you found.
+Run each one exactly as written: the same keys, the same number of presses, in the same order, on the engine named if you can. The only thing you change is the site's address: a carried repro may name an earlier run's server, so use this run's, {{BASE_URL}}, in its place. Still copy the steps into `reran` exactly as they were carried. One certifier once pressed Escape three times on a dialog and watched it close. The next, on the same commit with the same brief, pressed it twice, saw it stay open, and found no fail. One commit, two verdicts. In `reran`, copy each one's steps word for word and say what you saw. If it still reproduces, its item is `notFixed`, whatever else you found.
 
 ## 3. Re-walk the whole target
 

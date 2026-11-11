@@ -15,14 +15,20 @@ import { plural } from './_render.ts';
 import { renderCloseOutBody } from './_render-loop.ts';
 import { serveStatic } from './_serve.ts';
 
-const NOT_FOUND = "isn't in the person's issue, word for word. Ask them to write it in the section for their own notes (or in a comment on their issue), then record it exactly as they wrote it";
+// Every refusal ends the same way: the words have to be the person's, in their issue, before anything records them.
+const NOT_FOUND = "in the person's issue, word for word. Ask them to write it in the section for their own notes (or in a comment on their issue), then record it exactly as they wrote it";
 
 const decisionFrom = (options: Options, sources: string[]): Decision => {
   if (!options.decision) throw new Error('Pass --decision fix, accept or na. It\'s the person\'s call, so ask them');
-  if (options.decision === 'fix') return { choice: 'fix', reason: null };
+  if (options.decision === 'fix') {
+    if (options.reason) throw new Error('A fix takes --how, the person\'s words on how they want it solved, not --reason');
+    if (options.how && !foundVerbatim(options.how, sources)) throw new Error(`How they want it solved isn't ${NOT_FOUND}`);
+    return { choice: 'fix', reason: null, how: options.how?.trim() ?? null };
+  }
+  if (options.how) throw new Error('--how is only for a fix. Accepting as is, or calling it not applicable, takes --reason');
   if (!options.reason) throw new Error(`Accepting as is, or calling it not applicable, needs the person's reason. Pass --reason with their words`);
-  if (!foundVerbatim(options.reason, sources)) throw new Error(`The reason ${NOT_FOUND}`);
-  return { choice: options.decision, reason: options.reason };
+  if (!foundVerbatim(options.reason, sources)) throw new Error(`The reason isn't ${NOT_FOUND}`);
+  return { choice: options.decision, reason: options.reason, how: null };
 };
 
 const requireLoop = (ledger: Ledger): void => {
@@ -36,14 +42,15 @@ export const cmdRecordFinding = (options: Options, client: LoopGh): number => {
   requireLoop(ledger);
   if (!options.words) throw new Error('Pass --words with what the person wrote, exactly');
   const sources = personSources(state.person);
-  if (!foundVerbatim(options.words, sources)) throw new Error(`Those words ${NOT_FOUND}`);
+  if (!foundVerbatim(options.words, sources)) throw new Error(`Those words aren't ${NOT_FOUND}`);
   if (!options.criterion && !options.ux) throw new Error('Pass --criterion <num> for a WCAG finding, or --ux for a UX one. Ask the person if it isn\'t clear');
   if (options.criterion && !criterionByNum(options.criterion)) throw new Error(`${options.criterion} isn't a WCAG 2.2 criterion`);
   const tag = options.criterion ? { kind: 'wcag' as const, num: options.criterion } : { kind: 'ux' as const };
-  const { ledger: next, id } = addHuman(ledger, { words: options.words.trim(), tag, decision: decisionFrom(options, sources) });
+  const check = options.check?.toUpperCase() ?? null;
+  const { ledger: next, id } = addHuman(ledger, { words: options.words.trim(), tag, decision: decisionFrom(options, sources), check });
   saveLoop(client, state, { ledger: next, passes: state.view.passes });
   const where = tag.kind === 'ux' ? 'UX, outside WCAG' : `WCAG ${tag.num}, ${insideTarget(tag.num, ledger.facts.level) ? 'inside' : 'outside'} the target`;
-  okLine(`recorded ${id} (${where}) on the person's issue, in their words`);
+  okLine(`recorded ${id} (${where}) on the person's issue, in their words${check ? `, settling check ${check}` : ''}`);
   out(nextStep(next, state.kept?.ticked ?? new Set(), agentUrl).says);
   return 0;
 };

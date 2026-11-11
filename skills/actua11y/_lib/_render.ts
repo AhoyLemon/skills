@@ -3,7 +3,7 @@ import { totalTokens, type Usage } from './_backend.ts';
 import { criterionByNum, levelLabel, type Level } from './_criteria.ts';
 import { VERDICT_KEY, warningsFor } from './_copy.ts';
 import { GITHUB_LIMIT, rawBlocks } from './_fence.ts';
-import { checkOf, failOf, insideTarget, ledgerBlock, passSha, STOP_WHY, type AgentItem, type Decision, type HumanItem, type Judged, type Ledger, type LoopView } from './_ledger.ts';
+import { checkOf, checksWithFindings, failOf, insideTarget, ledgerBlock, passSha, STOP_WHY, type AgentItem, type Decision, type HumanItem, type Judged, type Ledger, type LoopView } from './_ledger.ts';
 import { tallyOf, verdictOf, VERDICT_MARK, type CriterionResult, type Fail, type FinderReport } from './_report.ts';
 
 export { GITHUB_LIMIT };
@@ -274,7 +274,7 @@ const quoted = (text: string): string => `“${safeText(text)}”`;
 
 export const decisionText = (decision: Decision | null): string => {
   if (!decision) return 'not yet. Fix it, accept it as it is (with your reason), or call it not applicable (with your reason)';
-  if (decision.choice === 'fix') return 'fix';
+  if (decision.choice === 'fix') return decision.how ? `fix it, like this: ${quoted(decision.how)}` : 'fix it';
   return `${decision.choice === 'accept' ? 'accept as is' : 'not applicable'}, because ${quoted(decision.reason ?? '')}`;
 };
 
@@ -288,10 +288,12 @@ export const renderPersonIssue = (view: LoopView, links: { agentUrl: string }, k
   const { ledger, finder } = view;
   const facts = ledger.facts;
   const order = finder.criteria.map((result) => result.num);
+  const found = checksWithFindings(ledger);
   const checks = groupByNum(ledger.checks.map((item) => {
     const content = checkOf(view, item);
     const origin = content.origin === 'the finder' ? '' : `\n  - **From:** ${content.origin}`;
-    return { num: content.num, value: `- [${kept.ticked.has(item.id) ? 'x' : ' '}] **${item.id}** ${safeText(content.check.what)}\n  - **How:** ${safeText(content.check.how)}\n  - **Why a machine can't:** ${safeText(content.check.whyNotAMachine)}${origin}` };
+    const problem = found.has(item.id) ? `\n  - **You found a problem:** ${(found.get(item.id) ?? []).join(', ')}, below` : '';
+    return { num: content.num, value: `- [${kept.ticked.has(item.id) ? 'x' : ' '}] **${item.id}** ${safeText(content.check.what)}\n  - **How:** ${safeText(content.check.how)}\n  - **Why a machine can't:** ${safeText(content.check.whyNotAMachine)}${origin}${problem}` };
   }));
   const checkBlocks = [...checks.entries()].sort(([a], [b]) => order.indexOf(a) - order.indexOf(b)).map(([num, items]) => {
     const failing = finder.criteria.find((result) => result.num === num);
@@ -306,12 +308,14 @@ export const renderPersonIssue = (view: LoopView, links: { agentUrl: string }, k
     return lines.join('\n');
   });
   const humanBlocks = ledger.human.map((item) => {
-    const lines = [`- **${item.id}** ${quoted(item.words)}`, `  - **Tag:** ${tagText(item, facts.level)}`, `  - **Your decision:** ${decisionText(item.decision)}`];
+    const lines = [`- **${item.id}** ${quoted(item.words)}`, `  - **Tag:** ${tagText(item, facts.level)}`, ...(item.check ? [`  - **From your check:** ${item.check}`] : []), `  - **Your decision:** ${decisionText(item.decision)}`];
+    if (item.claim?.commit) lines.push(`  - **Fixer:** claimed${item.claim.outcome === 'partial' ? ' in part' : ''} at ${shortSha(item.claim.commit)} by fixer round ${item.claim.round}`);
+    else if (item.claim?.outcome === 'couldnt') lines.push(`  - **Fixer:** couldn't fix it in round ${item.claim.round}`);
     const since = judgedText(ledger, item.judged);
     if (since) lines.push(`  - **Since then:** ${since}`);
     return lines.join('\n');
   });
-  const intro = "A machine couldn't settle these, so each says what to check, how, and why it needs you. Tick one once you've checked it yourself. Only you tick these, never a certifier.";
+  const intro = "A machine couldn't settle these, so each says what to check, how, and why it needs you. Tick one once you've checked it and it holds up. If it doesn't, don't tick it: write what's wrong, and how you want it solved, in your notes below, and the session running actua11y turns it into a finding for the fixer. Only you tick these, never a certifier.";
 
   const compose = (checksInline: boolean): string => {
     const checkSection = checkBlocks.length === 0

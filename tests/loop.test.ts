@@ -46,7 +46,7 @@ const makeRepo = (): { root: string; remote: string } => {
 
 const options = (root: string, issue: string, extra: Partial<Options> = {}): Options => ({
   command: '', subject: '', cwd: root, level: null, scope: ['.'], url: null, serve: null, pages: [], allowIgnored: [], model: 'claude-opus-5-5', effort: 'high', maxTurns: 300, maxBudgetUsd: 20, timeoutMinutes: 60,
-  run: null, preview: false, help: false, issue, branch: null, budgetUsd: 60, words: null, criterion: null, ux: false, decision: null, reason: null, item: null, tokens: null, minutes: null, uncertifiedOk: false, atCap: false,
+  run: null, preview: false, help: false, issue, branch: null, budgetUsd: 60, words: null, criterion: null, ux: false, decision: null, reason: null, how: null, check: null, item: null, tokens: null, minutes: null, uncertifiedOk: false, atCap: false,
   ...extra,
 });
 
@@ -118,7 +118,7 @@ test('a whole loop runs on GitHub alone: two fixer rounds, two passes, a human f
   assert.equal(ledgerOf(gh, agentUrl).stage, 'ai');
 
   // Fixer round 1: one finding fixed, one fixed in part.
-  const brief1 = fixerBrief(loadLoop(gh, agentUrl).view, root);
+  const brief1 = fixerBrief(loadLoop(gh, agentUrl).view, root, git(root, 'rev-parse', 'HEAD'));
   assert.deepEqual(brief1.items, ['A1', 'A2']);
   assert.match(brief1.text, /Brief id: `[0-9a-f]{12}`/);
   const alt = commit(root, 'index.html', '<img src="moth.png">', '<img src="moth.png" alt="A moth on a lamp">', 'Describe the moth photo');
@@ -149,7 +149,7 @@ test('a whole loop runs on GitHub alone: two fixer rounds, two passes, a human f
   assert.equal([...gh.prs.values()][0]?.comments.length, comments, 'and posts nothing twice');
 
   // Fixer round 2 works the two still open, and its brief carries pass 1's exact steps.
-  const brief2 = fixerBrief(loadLoop(gh, agentUrl).view, root);
+  const brief2 = fixerBrief(loadLoop(gh, agentUrl).view, root, git(root, 'rev-parse', 'HEAD'));
   assert.deepEqual(brief2.items, ['A2', 'A3']);
   assert.match(brief2.text, /Still failing at certifier pass 1\*\* \(chrome 157\.0\.0\.0\)[\s\S]*1\. Load \/\n  2\. Press Tab once/);
   const ring = commit(root, 'css/site.css', 'a:focus { outline: none; }', 'a:focus-visible { outline: 2px solid; }', 'Show the focus ring');
@@ -171,25 +171,55 @@ test('a whole loop runs on GitHub alone: two fixer rounds, two passes, a human f
   assert.deepEqual(ledger.stopped, { why: 'approved', pass: 2 });
   assert.ok(pr?.comments.some((entry) => entry.body.startsWith('<!-- actua11y:report-back v1')), 'the report back lands on the PR');
 
-  // The human round: the person writes in their own region and ticks their checks.
+  // The human round: the person checks two things. P1 holds up, so they tick it. P2 doesn't, so they write what's wrong and how they want it solved, and accept something else as it is.
   const person = gh.issues.get(ledger.personUrl ?? '');
   if (!person) throw new Error('no person issue');
-  const theirs = "\nThe Join button is hard to hit on my phone. I'm fine with it for now, it meets the target.\n";
-  person.body = person.body.replace(`${YOURS_START}\n\n${YOURS_END}`, `${YOURS_START}${theirs}${YOURS_END}`).replace('- [ ] **P1**', '- [x] **P1**').replace('- [ ] **P2**', '- [x] **P2**');
+  const theirs = "\nThe Join button is hard to hit on my phone. Make it at least 44px tall. The footer is a bit grey, but I'm fine with that, it's the brand.\n";
+  person.body = person.body.replace(`${YOURS_START}\n\n${YOURS_END}`, `${YOURS_START}${theirs}${YOURS_END}`).replace('- [ ] **P1**', '- [x] **P1**');
   assert.throws(() => quietly(() => cmdRecordFinding(options(root, agentUrl, { words: 'Join is too small', ux: true, decision: 'fix' }), gh)), /word for word/, 'words they never wrote');
   assert.throws(() => quietly(() => cmdRecordFinding(options(root, agentUrl, { words: 'Whether the moth photo is decorative', ux: true, decision: 'fix' }), gh)), /word for word/, "words only the runner's own sections hold");
-  assert.equal(quietly(() => cmdRecordFinding(options(root, agentUrl, { words: 'The Join button is hard to hit on my phone.', ux: true, decision: 'accept', reason: "I'm fine with it for now, it meets the target." }), gh)), 0);
+  assert.throws(() => quietly(() => cmdRecordFinding(options(root, agentUrl, { words: 'The Join button is hard to hit on my phone.', criterion: '2.5.8', decision: 'fix', how: 'Make it 48px' }), gh)), /How they want it solved isn't in the person's issue/, 'a how-to they never wrote');
+  assert.equal(quietly(() => cmdRecordFinding(options(root, agentUrl, { words: 'The Join button is hard to hit on my phone.', criterion: '2.5.8', check: 'P2', decision: 'fix', how: 'Make it at least 44px tall.' }), gh)), 0);
+  assert.equal(quietly(() => cmdRecordFinding(options(root, agentUrl, { words: 'The footer is a bit grey', ux: true, decision: 'accept', reason: "I'm fine with that, it's the brand." }), gh)), 0);
   assert.ok(gh.issues.get(person.url)?.body.includes(`${YOURS_START}${theirs}${YOURS_END}`), 'their words survive the re-render byte for byte');
-  assert.match(gh.issues.get(person.url)?.body ?? '', /- \[x\] \*\*P1\*\*[\s\S]*\*\*H1\*\* “The Join button is hard to hit on my phone\.”/);
+  assert.match(gh.issues.get(person.url)?.body ?? '', /- \[x\] \*\*P1\*\*/);
+  assert.match(gh.issues.get(person.url)?.body ?? '', /- \[ \] \*\*P2\*\*[^\n]*\n(?:  - [^\n]*\n)*  - \*\*You found a problem:\*\* H1, below/, 'P2 is settled by a finding, not a tick');
+  assert.match(gh.issues.get(person.url)?.body ?? '', /\*\*H1\*\* “The Join button is hard to hit on my phone\.”\n  - \*\*Tag:\*\* WCAG [^\n]*2\.5\.8[^\n]*outside the target[^\n]*\n  - \*\*From your check:\*\* P2\n  - \*\*Your decision:\*\* fix it, like this: “Make it at least 44px tall\.”/);
+  ledger = ledgerOf(gh, agentUrl);
+  assert.match(nextStep(ledger, new Set(['P1']), agentUrl).command ?? '', /brief fixer/, 'the person decided on a fix, so the fixer comes back');
+
+  // The person tidies one thing by hand first, then hands the rest to the fixer. Its brief is their words, their how-to and the check it came from.
+  commit(root, 'index.html', '<title>Moth Club</title>', '<title>Moth Club: join the club</title>', 'Say what the page is for in its title');
+  const brief3 = fixerBrief(loadLoop(gh, agentUrl).view, root, git(root, 'rev-parse', 'HEAD'));
+  assert.deepEqual(brief3.items, ['H1']);
+  assert.match(brief3.text, /fixer round in the human round/);
+  assert.match(brief3.text, /### H1 · a person's own finding · WCAG 2\.5\.8 Target Size \(Minimum\) \(AA\)\n\n- \*\*In their words:\*\* "The Join button is hard to hit on my phone\."\n- \*\*How they want it solved, in their words:\*\* "Make it at least 44px tall\."\n- \*\*It came from check P2/);
+  assert.match(brief3.text, /There's no `needsPerson` in this round/);
+  const tall = commit(root, 'css/site.css', 'body { color: #777; }', 'body { color: #777; }\nbutton { min-height: 44px; }', 'Make Join at least 44px tall');
+  assert.equal(quietly(() => cmdRecordFixer(options(root, agentUrl), gh, fenced({ schema: FIXER_SCHEMA, brief: brief3.id, findings: [{ id: 'H1', outcome: 'partial', commit: tall, how: 'Taller', left: 'Width', needsPerson: 'A design call' }] }))), 1, 'everything here is already the person\'s, so nothing moves to them');
+  assert.equal(quietly(() => cmdRecordFixer(options(root, agentUrl, { tokens: 20_000, minutes: 2 }), gh, fenced({ schema: FIXER_SCHEMA, brief: brief3.id, findings: [{ id: 'H1', outcome: 'fixed', commit: tall, how: 'Every button is at least 44px tall now, Join included' }] }))), 0, "the person's own commit came before the brief, so the fixer doesn't have to cite it");
+  assert.match(pr?.comments.at(-1)?.body ?? '', /## actua11y · fixer round 3, in the human round[\s\S]*### The person's own commits, made before this round \(1\)[\s\S]*Say what the page is for in its title/);
+  assert.match(gh.issues.get(person.url)?.body ?? '', /\*\*H1\*\*[\s\S]*?- \*\*Fixer:\*\* claimed at `[0-9a-f]{12}` by fixer round 3/);
+  ledger = ledgerOf(gh, agentUrl);
+  assert.match(nextStep(ledger, new Set(['P1']), agentUrl).command ?? '', /run certifier/);
+
+  // Pass 3 guards the human round, the person's how-to in its brief, and approves.
+  assert.equal(filePass(gh, root, agentUrl, (carried) => ({
+    items: ['A1', 'A2', 'A3', 'H1'].map((id) => ({ id, fixed: [{ did: `Checked ${id} in the running page`, saw: 'No fail' }] })),
+    reran: carried.map((ref) => ({ ...ref, saw: 'Focus ring visible on Join', reproduced: false })),
+    rewalk: { criteria: walked(), newFails: [], newChecks: [] },
+  })).code, 0);
 
   // Close-out.
   assert.equal(quietly(() => cmdCloseOut(options(root, agentUrl), gh)), 0);
   const closed = gh.prs.get(pr?.url ?? '');
   assert.equal(closed?.isDraft, false);
-  assert.match(closed?.body ?? '', /\*\*The certified commit:\*\* `[0-9a-f]{12}`, approved by certifier pass 2\./);
+  assert.match(closed?.body ?? '', /\*\*The certified commit:\*\* `[0-9a-f]{12}`, approved by certifier pass 3\./);
   assert.match(closed?.body ?? '', /--match-head-commit [0-9a-f]{40}/);
+  assert.match(closed?.body ?? '', /\*\*Checks where the person found a problem:\*\* P2, now H1/);
+  assert.match(closed?.body ?? '', /\*\*H1\*\*[^\n]*: certified at `[0-9a-f]{12}` by pass 3/);
+  assert.match(closed?.body ?? '', /\*\*H2\*\*[^\n]*accept as is, because “I'm fine with that, it's the brand\.”/);
   assert.match(closed?.body ?? '', /This closes #1\nThis closes #2\n$/, 'the closing lines come last, one per line');
-  assert.match(closed?.body ?? '', /\*\*H1\*\*[^\n]*accept as is, because “I'm fine with it for now, it meets the target\.”/);
   assert.equal(ledgerOf(gh, agentUrl).stage, 'closed');
 
   // A fresh load from GitHub alone renders exactly what's there.
@@ -208,7 +238,7 @@ test('a fixer report that skips a commit, cites one outside the round or answers
   fileIssues({ report: validated.report, facts: { ...makeFacts('A'), commit: git(root, 'rev-parse', 'HEAD') }, site: { url: null, serve: '.' }, slug: SLUG, filed, gh, save: () => undefined, progress: () => undefined });
   const agentUrl = filed.agentUrl ?? '';
   quietly(() => cmdLoopStart(options(root, agentUrl), gh));
-  const brief = fixerBrief(loadLoop(gh, agentUrl).view, root);
+  const brief = fixerBrief(loadLoop(gh, agentUrl).view, root, git(root, 'rev-parse', 'HEAD'));
   const first = commit(root, 'index.html', '<img src="moth.png">', '<img src="moth.png" alt="A moth">', 'Alt text');
   commit(root, 'index.html', '<title>', '<title lang="en">', 'Something nobody cites');
   const record = (report: unknown): number => quietly(() => cmdRecordFixer(options(root, agentUrl), gh, fenced(report)));

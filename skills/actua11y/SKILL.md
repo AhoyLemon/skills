@@ -1,6 +1,6 @@
 ---
 name: actua11y
-description: An accessibility audit and fix loop for coding agents that is honest about what a machine settled and what still needs a person. Audits a site against WCAG 2.2 (A, AA or AAA) with a fresh, isolated, read-only session that drives a real browser, files two GitHub issues (every proven fail for agents, everything a machine can't settle for a person), then, if you want, fixes the fails, has a blind certifier check every fix, hands the rest to a person with a certifier guarding their fixes, and closes both issues with one PR. Use when someone asks for an accessibility audit, an a11y review, WCAG conformance, "is this accessible?", or to fix accessibility issues. It never says a site passes.
+description: An accessibility audit and fix loop for coding agents that is honest about what a machine settled and what still needs a person. Audits a site against WCAG 2.2 (A, AA or AAA) with a fresh, isolated, read-only session that drives a real browser, files two GitHub issues (every proven fail for agents, everything a machine can't settle for a person), then, if you want, fixes the fails, has a blind certifier check every fix, hands the rest to a person who works it with the fixer while a certifier guards every fix, and closes both issues with one PR. Use when someone asks for an accessibility audit, an a11y review, WCAG conformance, "is this accessible?", or to fix accessibility issues. It never says a site passes.
 license: MIT for code, CC BY 4.0 for prose. See LICENSE in github.com/AhoyLemon/skills.
 compatibility: Claude Code, with Node 22.18 or later, git, the GitHub CLI signed in, and Chrome or Edge installed (or Playwright's own Chromium).
 metadata:
@@ -97,8 +97,8 @@ It cuts a branch from the audited commit and pushes it. If the project has a bra
 ### 6. The fixer
 
 1. `node <base>/runner.ts brief fixer --issue <n>` prints the fixer's brief: every open ❌, frozen for this round, ending in a brief id.
-2. Start a fresh subagent and hand it that output **whole and unchanged** as its prompt. Never paraphrase it, trim it or add to it. The fixer edits and commits in this checkout, under the project's own conventions, and goes after every ❌, one commit per finding.
-3. Pass its final message to the runner unchanged, on stdin, with the tokens and minutes its result reported:
+2. Start a fresh subagent and have it run that command itself and follow the brief it prints, so the brief reaches it **whole and unchanged**. (Pasting the output in as its prompt works too, but a long brief is easy to clip by accident.) Never paraphrase it, trim it or add to it, and tell it nothing else about the work beyond where its report goes. The fixer edits and commits in this checkout, under the project's own conventions, and goes after every ❌, one commit per finding.
+3. Pass its final message to the runner unchanged, on stdin, with the tokens and minutes its result reported. The usage can arrive a moment after the report itself, so wait for it:
 
    ```bash
    node <base>/runner.ts record fixer --issue <n> --tokens <t> --minutes <m> <<'ACTUA11Y_REPORT'
@@ -122,26 +122,31 @@ When the AI rounds end, approved or at the cap, the runner posts a report back o
 
 ### 9. The human round
 
-The person works their own issue, with real devices, a screen reader and their own thumbs:
+The human round is the person and the fixer working together, with a blind certifier guarding every fix. The person works their own issue, with real devices, a screen reader and their own thumbs. For each 🕵️ check:
 
-- they tick the 🕵️ checks they've verified. Only they tick those, never you and never a certifier
-- they write what they find between the two markers in their issue's "What I found by using it" section, or in a comment on it
-- each ❌ moved to them, and each finding of their own, needs their decision: fix it, accept it as it is (with a reason), or not applicable (with a reason)
+- **If it holds up,** they tick it. Only they tick checks, never you and never a certifier.
+- **If it doesn't,** they leave it unticked. They write what's wrong, and how they want it solved, between the two markers in their issue's "What I found by using it" section (or in a comment on their issue). You record that as a finding that settles the check.
+
+They also write down anything else they find by using it, and decide each ❌ moved to them: fix it, accept it as it is (with a reason), or not applicable (with a reason).
 
 Record each one with the runner, in their words, which it checks against their issue word for word:
 
-- `node <base>/runner.ts record finding --issue <n> --words "<their words>" (--criterion <num> | --ux) --decision fix|accept|na [--reason "<their words>"]`
-- `node <base>/runner.ts record decision --issue <n> --item <A7 or H2> --decision fix|accept|na [--reason "<their words>"]`
+- `node <base>/runner.ts record finding --issue <n> --words "<their words>" (--criterion <num> | --ux) [--check <P4>] --decision fix|accept|na [--how "<their words>" | --reason "<their words>"]`
+- `node <base>/runner.ts record decision --issue <n> --item <A7 or H2> --decision fix|accept|na [--how "<their words>" | --reason "<their words>"]`
 
-Ask whether each finding is a WCAG criterion (which one) or a UX problem. The runner works out the level, and whether it's inside the target, from the table. Findings outside the target are recorded, and never hold up close-out. If the words aren't in their issue yet, ask them to write them there. Don't type them in for them.
+Ask whether each finding is a WCAG criterion (which one) or a UX problem. The runner works out the level, and whether it's inside the target, from the table. Findings outside the target are recorded and fixed if they want, and never hold up close-out. `--check` links a finding to the check it came from. `--how` is how they want it solved, for a fix, and `--reason` is why, for accept or n/a. If any of their words aren't in their issue yet, ask them to write them there. Don't type them in for them.
 
-Fixes land on the same branch, made by the person or by an agent they direct, and pushed. Then run the certifier again (step 7). It guards their fixes and hunts for regressions, with their decisions in their words as its brief. It loops until it approves, with a cap of 3 passes.
+Then the fixes:
+
+1. `brief fixer` again (step 6). In the human round its list is the person's fix decisions, in their words, with how they want each one solved. Hand it to a subagent and record it exactly as in step 6. The person is right there, so they can watch it work. If it heads the wrong way, they change their words in their issue and you brief it again, rather than steering it in chat, so the record says who decided what.
+2. Or the person fixes something by hand (or has you do it) and pushes. A fixer briefed afterwards starts from their commits, so it never has to account for them.
+3. Then run the certifier again (step 7). It gets the person's decisions and how-to in their words, guards the fixes and hunts for regressions. Not approved means back to the fixer. The cap is 3 certifier passes in the human round.
 
 ### 10. Close-out
 
 `node <base>/runner.ts close-out --issue <n>`
 
-It refuses until the latest pass approved, every check is ticked and every finding and moved fail is decided. If commits landed after the certified commit, it stops: run the certifier again (best), or pass `--uncertified-ok` to list them as uncertified. At the human round's cap, `--at-cap` closes out anyway and says so plainly. Then it writes the final summary into the PR body with the closing lines last, takes the PR out of draft, and prints a merge command pinned to the certified commit. Suggest that command to the user. **The merge is theirs.**
+It refuses until the latest pass approved, every check is ticked or turned into a finding, and every finding and moved fail is decided. If commits landed after the certified commit, it stops: run the certifier again (best), or pass `--uncertified-ok` to list them as uncertified. At the human round's cap, `--at-cap` closes out anyway and says so plainly. Then it writes the final summary into the PR body with the closing lines last, takes the PR out of draft, and prints a merge command pinned to the certified commit. Suggest that command to the user. **The merge is theirs.**
 
 ## Never
 
@@ -152,7 +157,7 @@ It refuses until the latest pass approved, every check is ticked and every findi
 - Tell the certifier anything, or start it yourself. The runner builds its brief.
 - Record words as the person's that aren't in their issue, or tick a check for them.
 - Edit a run's local record, or the ledger in the agent issue. The fix for a bad report is another run.
-- Edit the repository yourself during the loop. Fixes come from the fixer, or from the person.
+- Edit the repository yourself during the AI rounds. Fixes come from the fixer then, and in the human round from the fixer or from the person (or you, when they ask you to).
 - Fake independence. If the runner can't start an isolated session here, say so and stop.
 
 ## Files

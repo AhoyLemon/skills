@@ -4,8 +4,8 @@ import type { CertifierReport, PassVerdict } from './_certifier.ts';
 import { criterionByNum } from './_criteria.ts';
 import { rawBlocks, GITHUB_LIMIT } from './_fence.ts';
 import type { FixerReport } from './_fixer.ts';
-import { carriedFor, checkOf, failOf, MAX_FIXER_ROUNDS, numOf, passes, passSha, roundOf, type AgentItem, type HumanItem, type Ledger, type LoopView, type PassPlan } from './_ledger.ts';
-import { codeLink, criterionHeading, decisionText, formatUsage, pagesList, plural, safeText, servedLine, shortSha, tagText, warningBlock } from './_render.ts';
+import { carriedFor, checkOf, checksWithFindings, failOf, MAX_FIXER_ROUNDS, numOf, passes, passSha, roundOf, type AgentItem, type HumanItem, type Ledger, type LoopView, type PassPlan } from './_ledger.ts';
+import { chunkBlocks, codeLink, criterionHeading, decisionText, formatUsage, pagesList, plural, safeText, servedLine, shortSha, tagText, warningBlock } from './_render.ts';
 import type { Used } from './_report.ts';
 
 const oneLine = (text: string): string => text.replace(/\s*\n\s*/g, ' ').trim();
@@ -19,35 +19,56 @@ const steps = (list: string[], indent = '  '): string => list.map((step, i) => `
 
 // ---- What the roles are told. Briefs go to a model, so they're plain text, never escaped for GitHub. ----
 
-export const fixerItemsText = (view: LoopView, items: AgentItem[]): string =>
-  items
-    .map((item) => {
+const howLine = (how: string | null): string[] => (how ? [`- **How they want it solved, in their words:** "${oneLine(how)}"`] : []);
+
+const checkLine = (view: LoopView, check: string | null): string[] => {
+  const found = check ? view.ledger.checks.find((entry) => entry.id === check) : undefined;
+  return found ? [`- **It came from check ${found.id}, which they looked at and found a problem with:** ${oneLine(checkOf(view, found).check.what)}`] : [];
+};
+
+const carriedLines = (view: LoopView, id: string): string[] =>
+  carriedFor(view, id)
+    .filter((entry) => entry.from > 0)
+    .flatMap((repro) => [`- **Still failing at certifier pass ${repro.from}**${repro.engine ? ` (${repro.engine})` : ''}: \`${repro.file}\` line ${repro.line}. ${oneLine(repro.what)}`, steps(repro.steps)]);
+
+const humanHeading = (item: HumanItem): string => `### ${item.id} · a person's own finding · ${item.tag.kind === 'ux' ? 'a UX problem, outside WCAG' : `WCAG ${criterionLabel(item.tag.num)}`}`;
+
+// What the fixer is told about each item: a proven fail in the finder's or certifier's words, or a person's own finding in theirs, with how they want it solved when they said.
+export const fixerItemsText = (view: LoopView, ids: string[]): string =>
+  ids
+    .map((id) => {
+      const human = view.ledger.human.find((entry) => entry.id === id);
+      if (human) {
+        const lines = [humanHeading(human), '', `- **In their words:** "${oneLine(human.words)}"`, ...howLine(human.decision.how), ...checkLine(view, human.check), ...carriedLines(view, id)];
+        if (human.claim?.outcome === 'couldnt') lines.push(`- **Last round:** the fixer couldn't fix it in round ${human.claim.round}. Try again, or say why not.`);
+        return lines.join('\n');
+      }
+      const item = view.ledger.items.find((entry) => entry.id === id);
+      if (!item) return '';
       const { num, fail } = failOf(view, item);
       const lines = [`### ${item.id} · ${criterionLabel(num)}`, '', `- **Where:** \`${fail.file}\` line ${fail.line}, when it was found (lines may have moved since)`, `- **What's wrong:** ${oneLine(fail.what)}`, `- **Who it hurts:** ${oneLine(fail.whoItHurts)}`];
       if (fail.repro && fail.repro.length > 0) lines.push('- **How it shows:**', steps(fail.repro));
-      for (const repro of carriedFor(view, item.id).filter((entry) => entry.from > 0)) {
-        lines.push(`- **Still failing at certifier pass ${repro.from}**${repro.engine ? ` (${repro.engine})` : ''}: \`${repro.file}\` line ${repro.line}. ${oneLine(repro.what)}`, steps(repro.steps));
-      }
+      if (item.status === 'moved' && item.decision?.choice === 'fix') lines.push('- **A person decided this one should be fixed.**', ...howLine(item.decision.how));
+      lines.push(...carriedLines(view, id));
       if (item.claim?.outcome === 'couldnt') lines.push(`- **Last round:** the fixer couldn't fix it in round ${item.claim.round}. Try again, or say why not.`);
       return lines.join('\n');
     })
+    .filter((text) => text !== '')
     .join('\n\n');
 
-const humanItemText = (item: HumanItem, blocking: boolean): string => {
-  const tag = item.tag.kind === 'ux' ? 'a UX problem, outside WCAG' : `WCAG ${criterionLabel(item.tag.num)}`;
-  return [`### ${item.id} · a person's own finding · ${tag}`, '', `In their words: "${oneLine(item.words)}"`, '', `They decided it should be fixed.${blocking ? '' : ' Judge it, but it sits outside the target.'}`].join('\n');
-};
+const humanItemText = (view: LoopView, item: HumanItem, blocking: boolean): string =>
+  [humanHeading(item), '', `- **In their words:** "${oneLine(item.words)}"`, `- They decided it should be fixed.${blocking ? '' : ' Judge it, but it sits outside the target.'}`, ...howLine(item.decision.how), ...checkLine(view, item.check)].join('\n');
 
 export const certifierItemsText = (view: LoopView, plan: PassPlan): string =>
   plan.items
     .map((id) => {
       const human = view.ledger.human.find((item) => item.id === id);
-      if (human) return humanItemText(human, plan.blocking.includes(id));
+      if (human) return humanItemText(view, human, plan.blocking.includes(id));
       const item = view.ledger.items.find((entry) => entry.id === id);
       if (!item) return '';
       const { num, fail } = failOf(view, item);
       const lines = [`### ${id} · ${criterionLabel(num)}`, '', `- **Where it was found:** \`${fail.file}\` line ${fail.line} (lines may have moved since)`, `- **What was wrong:** ${oneLine(fail.what)}`, `- **Who it hurts:** ${oneLine(fail.whoItHurts)}`];
-      if (item.status === 'moved' && item.decision?.choice === 'fix') lines.push('- A person decided this one should be fixed.');
+      if (item.status === 'moved' && item.decision?.choice === 'fix') lines.push('- A person decided this one should be fixed.', ...howLine(item.decision.how));
       if (!plan.blocking.includes(id)) lines.push('- Judge it, but it sits outside the target.');
       return lines.join('\n');
     })
@@ -91,51 +112,60 @@ const tokensText = (tokens: number | null): string => (tokens === null ? 'unrepo
 
 export interface FixerCommentInput {
   round: number;
+  stage: 'ai' | 'human';
   sha: string;
   base: string;
   commits: { sha: string; subject: string }[];
+  // Commits the person made on the branch before this round began. The fixer doesn't claim them.
+  before: { sha: string; subject: string }[];
   reported: { tokens: number | null; minutes: number | null };
 }
 
 export const renderFixerComments = (view: LoopView, report: FixerReport, input: FixerCommentInput): string[] => {
   const label = (id: string): string => {
-    const item = view.ledger.items.find((entry) => entry.id === id);
-    return item ? `**${id}** ${criterionHeading(failOf(view, item).num)}` : `**${id}**`;
+    const num = numOf(view, id);
+    return `**${id}** ${num === 'UX' ? 'UX' : criterionHeading(num)}`;
   };
   const group = (title: string, outcome: string, line: (entry: FixerReport['findings'][number]) => string): string[] => {
     const entries = report.findings.filter((entry) => entry.outcome === outcome && (outcome !== 'couldnt' || !entry.needsPerson));
     return entries.length === 0 ? [] : [`### ${title} (${entries.length})`, '', ...entries.map(line), ''];
   };
   const moved = report.findings.filter((entry) => entry.needsPerson);
-  const minutes = input.reported.minutes === null ? 'unreported' : `${input.reported.minutes} min`;
+  const usage = input.reported.tokens === null && input.reported.minutes === null ? 'Unreported' : `${tokensText(input.reported.tokens)} · ${input.reported.minutes === null ? 'minutes unreported' : `${input.reported.minutes} min`}`;
   const body = [
     `<!-- actua11y:fixer v1 round=${input.round} -->`,
-    `## actua11y · fixer round ${input.round} of at most ${MAX_FIXER_ROUNDS}`,
+    input.stage === 'human' ? `## actua11y · fixer round ${input.round}, in the human round` : `## actua11y · fixer round ${input.round} of at most ${MAX_FIXER_ROUNDS}`,
     '',
     bestFaith(view),
     '',
     '| Role | Commits | Usage, as the orchestrating session reported it |',
     '|---|---|---|',
-    `| A subagent in your own session, handed the runner's brief unchanged | ${shortSha(input.base)} to ${shortSha(input.sha)} | ${tokensText(input.reported.tokens)} · ${minutes}. Its cost isn't measured, since it ran in your session and bills there |`,
+    `| A subagent in your own session, handed the runner's brief unchanged | ${shortSha(input.base)} to ${shortSha(input.sha)} | ${usage}. Its cost isn't measured, since it ran in your session and bills there |`,
     '',
     'Each of these is a claim. Only a blind certifier, which never sees this comment, can make one ✅.',
     '',
-    ...group('Fixed', 'fixed', (entry) => `- ${label(entry.id)} at ${shortSha(entry.commit ?? '')}: ${safeText(entry.how ?? '')}`),
-    ...group('Fixed in part', 'partial', (entry) => `- ${label(entry.id)} at ${shortSha(entry.commit ?? '')}: ${safeText(entry.how ?? '')}\n  - **Left:** ${safeText(entry.left ?? '')}`),
+    ...group('Fixed', 'fixed', (entry) => `- ${label(entry.id)}, in ${shortSha(entry.commit ?? '')}: ${safeText(entry.how ?? '')}`),
+    ...group('Fixed in part', 'partial', (entry) => `- ${label(entry.id)}, in ${shortSha(entry.commit ?? '')}: ${safeText(entry.how ?? '')}\n  - **Left:** ${safeText(entry.left ?? '')}`),
     ...group("Couldn't fix", 'couldnt', (entry) => `- ${label(entry.id)}: ${safeText(entry.why ?? '')}`),
     ...(moved.length === 0 ? [] : [`### Moved to the person's issue (${moved.length})`, '', ...moved.map((entry) => `- ${label(entry.id)}: ${safeText(entry.needsPerson ?? '')}`), '']),
     `### Commits (${input.commits.length})`,
     '',
     ...input.commits.map((commit) => `- ${shortSha(commit.sha)} ${safeText(commit.subject)}`),
     '',
+    ...(input.before.length === 0 ? [] : [`### The person's own commits, made before this round (${input.before.length})`, '', 'The fixer doesn\'t claim these. The next certifier guards them like everything else.', '', ...input.before.map((commit) => `- ${shortSha(commit.sha)} ${safeText(commit.subject)}`), '']),
   ].join('\n');
   return fitWithRaw(body, rawBlocks('fixer', { round: String(input.round) }, "The fixer's raw report", report));
 };
 
 // The rendered comment and its raw report travel together when they fit, and the raw parts follow in comments of their own when they don't.
-const fitWithRaw = (body: string, raw: string[]): string[] => {
+// A body too long for one comment splits at its section headings, and every comment after the first gets a marker of its own so rerunning a command never posts it twice.
+export const fitWithRaw = (body: string, raw: string[]): string[] => {
   const joined = `${body}\n${raw.join('\n')}`;
-  return joined.length <= GITHUB_LIMIT ? [joined] : [body, ...raw.map((part, i) => `${body.split('\n')[0]?.replace(' v1 ', ` v1 raw=${i + 1} `)}\n${part}`)];
+  if (joined.length <= GITHUB_LIMIT) return [joined];
+  const head = body.split('\n')[0] ?? '';
+  const tagged = (tag: string, text: string): string => `${head.replace(' v1 ', ` v1 ${tag} `)}\n${text}`;
+  const parts = body.length <= GITHUB_LIMIT ? [body] : chunkBlocks(body.slice(head.length + 1).split(/\n(?=### )/), GITHUB_LIMIT - 500).map((chunk, i) => (i === 0 ? `${head}\n${chunk}` : tagged(`part=${i + 1}`, chunk)));
+  return [...parts, ...raw.map((part, i) => tagged(`raw=${i + 1}`, part))];
 };
 
 export interface CertifierCommentInput {
@@ -325,6 +355,7 @@ export const renderCloseOutBody = (view: LoopView, input: CloseOutInput): string
   const { ledger } = view;
   const decided = (item: AgentItem): boolean => item.status === 'moved' && item.moved?.check === null;
   const accepted = [...ledger.items.filter((item) => decided(item) && item.decision && item.decision.choice !== 'fix').map((item) => `- **${item.id}** ${criterionHeading(failOf(view, item).num)}: ${decisionText(item.decision)}`), ...ledger.human.filter((item) => item.decision.choice !== 'fix').map((item) => `- **${item.id}** “${safeText(item.words)}”: ${decisionText(item.decision)}`)];
+  const handedOver = ledger.items.filter((item) => item.status === 'moved' && item.moved?.check).map((item) => `${item.id}, as ${item.moved?.check ?? ''}`);
   const personFixed = [...ledger.items.filter((item) => decided(item) && item.decision?.choice === 'fix'), ...ledger.human.filter((item) => item.decision.choice === 'fix')];
   const fixLine = (item: AgentItem | HumanItem): string => {
     const label = 'words' in item ? `“${safeText(item.words)}” (${tagText(item, ledger.facts.level)})` : criterionHeading(failOf(view, item).num);
@@ -350,7 +381,9 @@ export const renderCloseOutBody = (view: LoopView, input: CloseOutInput): string
     '',
     '## What needed a person',
     '',
-    `- **Checks:** ${plural(input.ticked.size, 'check', 'checks')} ticked by the person: ${[...input.ticked].join(', ') || 'none'}`,
+    `- **Checks:** ${plural(input.ticked.size, 'check', 'checks')} ticked by the person: ${[...input.ticked].sort((x, y) => Number(x.slice(1)) - Number(y.slice(1))).join(', ') || 'none'}`,
+    ...(handedOver.length > 0 ? [`- **Fails a certifier handed to the person as checks:** ${handedOver.join('; ')}`] : []),
+    ...(checksWithFindings(ledger).size > 0 ? [`- **Checks where the person found a problem:** ${[...checksWithFindings(ledger)].map(([check, findings]) => `${check}, now ${findings.join(' and ')}`).join('; ')}`] : []),
     ...(personFixed.length > 0 ? ['- **Fixed at their call:**', ...personFixed.map((item) => `  ${fixLine(item)}`)] : []),
     '',
     '## Accepted, and why',

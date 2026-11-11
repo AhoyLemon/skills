@@ -9,11 +9,11 @@ import { banner } from './_copy.ts';
 import { levelLabel } from './_criteria.ts';
 import { FIXER_SHAPE, validateFixerReport } from './_fixer.ts';
 import { branchExists, commitsBetween, commitSubject, createBranch, currentBranch, headCommit, isAncestor, originSlug, parseGithubSlug, porcelain, pushBranch, repoRoot, slugText } from './_git.ts';
-import { agentItems, applyFixer, budgetLeft, fixerItems, fixerRounds, humanPasses, latestPass, MAX_FIXER_ROUNDS, MAX_HUMAN_PASSES, MIN_PASS_USD, passPlan, roundBase, startLoop, stopAi, waitingOnPerson, type Ledger, type LoopView } from './_ledger.ts';
+import { agentItems, applyFixer, budgetLeft, fixerRounds, fixerTargets, humanPasses, latestPass, MAX_FIXER_ROUNDS, MAX_HUMAN_PASSES, MIN_PASS_USD, passPlan, roundBase, startLoop, stopAi, waitingOnPerson, type Ledger, type LoopView } from './_ledger.ts';
 import { ensurePr, loadLoop, postRun, resolveAgentUrl, runTarget, saveLoop, type LoopGh, type LoopState } from './_loop.ts';
 import { formatUsage, plural } from './_render.ts';
 import { fixerItemsText, renderFixerComments, renderReportBack } from './_render-loop.ts';
-import { extractReportJson } from './_report.ts';
+import { extractReportJson, isRecord } from './_report.ts';
 
 export interface LoopContext {
   root: string;
@@ -61,14 +61,21 @@ export const nextStep = (ledger: Ledger, ticked: ReadonlySet<string>, agentUrl: 
     const judged = ledger.items.find((item) => item.id === id)?.judged ?? ledger.human.find((item) => item.id === id)?.judged ?? null;
     return judged === null || judged.pass !== latest?.n;
   });
+  const lastHuman = ledger.rounds.filter((round) => round.stage === 'human').at(-1);
   const capped = humanPasses(ledger) >= MAX_HUMAN_PASSES && latest?.approved !== true;
   if (capped) return { says: `The human round hit its cap of ${MAX_HUMAN_PASSES} certifier runs without an approving pass. Close-out can still happen, and says so plainly.`, command: `node runner.ts close-out ${issue} --at-cap` };
+  if (lastHuman?.kind === 'fixer') return { says: `Fixer round ${lastHuman.n} is recorded, so a blind certifier guards it next.`, command: `node runner.ts run certifier ${issue}` };
   const person: string[] = [];
-  if (waiting.unticked.length > 0) person.push(`${plural(waiting.unticked.length, 'check', 'checks')} to tick (${waiting.unticked.join(', ')})`);
+  if (waiting.unticked.length > 0) person.push(`${plural(waiting.unticked.length, 'check', 'checks')} to tick or turn into a finding (${waiting.unticked.join(', ')})`);
   if (waiting.undecided.length > 0) person.push(`${plural(waiting.undecided.length, 'fail', 'fails')} to decide (${waiting.undecided.join(', ')})`);
-  if (unjudged.length > 0 || latest?.approved !== true) return { says: `The human round. Waiting on the person${person.length > 0 ? `: ${person.join(', and ')}` : ''}. Once their fixes are pushed to the branch, a blind certifier guards them${unjudged.length > 0 ? ` (${unjudged.join(', ')} not yet judged at the latest commit)` : ''}.`, command: `node runner.ts run certifier ${issue}` };
-  if (person.length > 0) return { says: `The latest pass approved. Waiting on the person: ${person.join(', and ')}.`, command: null };
-  return { says: 'The latest pass approved and the person has ticked or decided everything.', command: `node runner.ts close-out ${issue}` };
+  const waitingText = person.length > 0 ? ` Still waiting on the person: ${person.join(', and ')}.` : '';
+  const toFix = fixerTargets(ledger);
+  if (toFix.length > 0) return { says: `The human round. ${plural(toFix.length, 'thing', 'things')} to fix (${toFix.join(', ')}). Hand a subagent the fixer brief, or the person fixes things by hand and pushes, then a blind certifier guards the work.${waitingText}`, command: `node runner.ts brief fixer ${issue}` };
+  // A pass can't settle a fail nobody has decided on yet, so the person decides before another one runs.
+  if (waiting.undecided.length > 0) return { says: `The human round. Waiting on the person to decide ${waiting.undecided.join(', ')}: fix it (and how), accept it as it is, or not applicable (and why), in their own words in their issue.${waiting.unticked.length > 0 ? ` Also ${person[0] ?? ''}.` : ''}`, command: null };
+  if (unjudged.length > 0 || latest?.approved !== true) return { says: `The human round. Once the fixes are pushed to the branch, a blind certifier guards them${unjudged.length > 0 ? ` (${unjudged.join(', ')} not yet judged at the latest commit)` : ''}.${waitingText}`, command: `node runner.ts run certifier ${issue}` };
+  if (person.length > 0) return { says: `The latest pass approved.${waitingText}`, command: null };
+  return { says: 'The latest pass approved, and the person has ticked, decided or turned into a finding everything.', command: `node runner.ts close-out ${issue}` };
 };
 
 const printNext = (step: NextStep): void => {
@@ -112,24 +119,33 @@ export interface FixerBrief {
   round: number;
 }
 
-export const fixerBrief = (view: LoopView, root: string): FixerBrief => {
+// The brief names the commit its round starts at, so its id proves both what the fixer was told and where its own commits begin.
+export const fixerBrief = (view: LoopView, root: string, base: string): FixerBrief => {
   const { ledger } = view;
-  const items = fixerItems(ledger);
+  const items = fixerTargets(ledger);
   const round = fixerRounds(ledger) + 1;
-  const note = round === 1 ? 'Nothing on this list has been tried yet.' : "Earlier rounds already tried. Anything still failing carries the certifier's exact steps, so start from those.";
+  const human = ledger.stage === 'human';
+  const aiRound = ledger.rounds.filter((entry) => entry.kind === 'fixer' && entry.stage === 'ai').length + 1;
   const body = fillTemplate(readBrief('fixer'), {
     REPO_ROOT: root,
     BRANCH: ledger.loop?.branch ?? '',
     LEVEL_LABEL: levelLabel(ledger.facts.level),
-    ROUND: String(round),
-    MAX_ROUNDS: String(MAX_FIXER_ROUNDS),
-    ROUND_NOTE: note,
+    INTRO: human
+      ? 'Each item is either a fail a blind finder or certifier proved, with the file and line and, for behaviour, exact repro steps, or a problem a person found by using the site, in their own words.'
+      : 'A blind finder or certifier proved each one, with the file and line, who it hurts and, for behaviour, exact repro steps.',
+    ROUND_LINE: human
+      ? "This is a fixer round in the human round. A person has used the site themselves, and every item here is theirs: something they found, or a proven fail they decided to fix, often with how they want it solved, in their own words. They're in the session with you."
+      : `This is fixer round ${aiRound} of at most ${MAX_FIXER_ROUNDS}. ${aiRound === 1 ? 'Nothing on this list has been tried yet.' : "Earlier rounds already tried. Anything still failing carries the certifier's exact steps, so start from those."}`,
+    BASE: base,
+    NEEDS_PERSON: human
+      ? "There's no `needsPerson` in this round: everything here is already the person's. If you can't do one, say partial or couldnt, and why, and they'll decide."
+      : "`needsPerson` moves a finding to the person's issue with your reason, instead of sending it round the loop again. Use it when only a person can settle the rest: a design decision, or wording only the site's owner can choose.",
     COUNT: String(items.length),
     ITEMS: fixerItemsText(view, items),
     REPORT_SCHEMA: FIXER_SHAPE,
   });
   const id = createHash('sha256').update(body).digest('hex').slice(0, 12);
-  return { text: `${body}\nBrief id: \`${id}\`. Put it in your report's \`brief\` field.\n`, id, items: items.map((item) => item.id), round };
+  return { text: `${body}\nBrief id: \`${id}\`. Put it in your report's \`brief\` field.\n`, id, items, round };
 };
 
 const requireFixerTurn = (ledger: Ledger, agentUrl: string): void => {
@@ -137,10 +153,19 @@ const requireFixerTurn = (ledger: Ledger, agentUrl: string): void => {
   if (!step.command?.includes('brief fixer')) throw new Error(`It isn't the fixer's turn. ${step.says}${step.command ? ` Next: ${step.command}` : ''}`);
 };
 
+// Where a fixer round may start. In the AI rounds, only where the last pass left off, since nobody else commits then. In the human round, anywhere after it, since the person may have fixed some things by hand first.
+const baseCandidates = (ledger: Ledger, root: string, head: string): string[] => {
+  const from = roundBase(ledger);
+  return ledger.stage === 'human' ? [from, ...commitsBetween(root, from, head)] : [from];
+};
+
 export const cmdBriefFixer = (options: Options, client: LoopGh): number => {
   const { root, ledger, state, agentUrl } = openLoop(options, client);
   requireFixerTurn(ledger, agentUrl);
-  out(fixerBrief(state.view, root).text);
+  if (ledger.loop && currentBranch(root) !== ledger.loop.branch) throw new Error(`Switch to the loop's branch, ${ledger.loop.branch}, first. The fixer commits there`);
+  const head = headCommit(root);
+  if (!baseCandidates(ledger, root, head).includes(head)) throw new Error(ledger.stage === 'human' ? `HEAD isn't on the loop's branch past the last pass (${roundBase(ledger).slice(0, 12)}). Pull or switch until it is` : `Commits landed on ${ledger.loop?.branch ?? 'the branch'} since the last pass that no fixer round made. In the AI rounds only the fixer commits, so show the user`);
+  out(fixerBrief(state.view, root, head).text);
   return 0;
 };
 
@@ -158,13 +183,17 @@ export const cmdRecordFixer = (options: Options, client: LoopGh, input: string |
   if (currentBranch(root) !== loop.branch) throw new Error(`You're on ${currentBranch(root)}, not the loop's branch ${loop.branch}. Switch to it, with the fixer's commits on it`);
   const dirty = porcelain(root);
   if (dirty.length > 0) throw new Error(`The working tree isn't clean (${dirty.slice(0, 3).map((line) => line.slice(3)).join(', ')}). The fixer commits every change, so send it back to finish, or show the user`);
-  const base = roundBase(ledger);
+  const from = roundBase(ledger);
   const head = headCommit(root);
-  if (!isAncestor(root, base, head)) throw new Error(`The branch no longer contains ${base.slice(0, 12)}, where this round began. Earlier commits were rewritten, which the fixer must never do`);
-  const commits = commitsBetween(root, base, head);
-  const brief = fixerBrief(state.view, root);
+  if (!isAncestor(root, from, head)) throw new Error(`The branch no longer contains ${from.slice(0, 12)}, where this round began. Earlier commits were rewritten, which the fixer must never do`);
   const raw = extractReportJson(input ?? readStdin());
-  const checked = validateFixerReport(raw, { briefId: brief.id, items: brief.items, commits });
+  // The report's brief id says which commit the round started at: the one whose brief hashes to it. Anything before that is the person's own.
+  const claimed = isRecord(raw) && typeof raw['brief'] === 'string' ? raw['brief'] : '';
+  const base = baseCandidates(ledger, root, head).find((candidate) => fixerBrief(state.view, root, candidate).id === claimed) ?? from;
+  const brief = fixerBrief(state.view, root, base);
+  const commits = commitsBetween(root, base, head);
+  const before = commitsBetween(root, from, base);
+  const checked = validateFixerReport(raw, { briefId: brief.id, items: brief.items, commits, allowNeedsPerson: ledger.stage !== 'human' });
   if (!checked.ok) {
     failLine(`The fixer's report has ${plural(checked.errors.length, 'problem', 'problems')}:`);
     for (const error of checked.errors) hintLine(error);
@@ -175,22 +204,23 @@ export const cmdRecordFixer = (options: Options, client: LoopGh, input: string |
   const report = checked.report;
 
   heading(`Recording fixer round ${brief.round}`);
-  if (commits.length > 0) {
+  if (commits.length + before.length > 0) {
     pushBranch(root, loop.branch);
-    okLine(`pushed ${plural(commits.length, 'commit', 'commits')} to ${loop.branch}`);
+    okLine(`pushed ${plural(commits.length, 'commit', 'commits')} from the fixer${before.length > 0 ? ` and ${plural(before.length, 'commit', 'commits')} the person made first` : ''} to ${loop.branch}`);
   }
   const pr = ensurePr(client, ledger, state.view, agentUrl, commitsBetween(root, ledger.facts.commit, head).length > 0);
   if (pr && !ledger.loop?.pr) okLine(`opened the draft PR: ${pr}`);
   const withPr: Ledger = { ...ledger, loop: { ...loop, pr } };
   const reported = { tokens: options.tokens, minutes: options.minutes };
-  const comments = renderFixerComments(state.view, report, { round: brief.round, sha: head, base, commits: commits.map((sha) => ({ sha, subject: commitSubject(root, sha) })), reported });
+  const subjects = (shas: string[]): { sha: string; subject: string }[] => shas.map((sha) => ({ sha, subject: commitSubject(root, sha) }));
+  const comments = renderFixerComments(state.view, report, { round: brief.round, stage: ledger.stage === 'human' ? 'human' : 'ai', sha: head, base, commits: subjects(commits), before: subjects(before), reported });
   const urls = postRun(client, runTarget(state, withPr), comments);
   okLine(`posted the fixer's report: ${urls[0] ?? ''}`);
   const next = applyFixer(withPr, report, { round: brief.round, sha: head, base, at: new Date().toISOString(), reported, commentUrls: urls });
   saveLoop(client, state, { ledger: next, passes: state.view.passes });
   const moved = report.findings.filter((finding) => finding.needsPerson).length;
   const count = (outcome: string): number => report.findings.filter((finding) => finding.outcome === outcome).length;
-  okLine(`claimed: ${count('fixed')} fixed, ${count('partial')} in part. Couldn't: ${count('couldnt')}. Moved to the person: ${moved}`);
+  okLine(`claimed: ${count('fixed')} fixed, ${count('partial')} in part. Couldn't: ${count('couldnt')}.${ledger.stage === 'human' ? '' : ` Moved to the person: ${moved}`}`);
   if (options.tokens === null || options.minutes === null) warnLine('the fixer\'s tokens or minutes weren\'t passed, so the record says "unreported". Pass --tokens and --minutes from the subagent\'s result next time');
   printNext(nextStep(next, state.kept?.ticked ?? new Set(), agentUrl));
   return 0;

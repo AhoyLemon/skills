@@ -5,7 +5,7 @@ import { FIXER_SCHEMA, validateFixerReport, type FixerContext } from '../skills/
 
 const ONE = 'a'.repeat(40);
 const TWO = 'b'.repeat(40);
-const context: FixerContext = { briefId: '0123456789ab', items: ['A1', 'A2', 'A3'], commits: [ONE, TWO] };
+const context: FixerContext = { briefId: '0123456789ab', items: ['A1', 'A2', 'A3'], commits: [ONE, TWO], allowNeedsPerson: true };
 
 type Finding = Record<string, unknown>;
 
@@ -43,4 +43,9 @@ test('the commits have to be this round\'s, and every one of them accounted for'
 
 test('a report that answers another brief is refused', () => {
   assert.ok(errorsOf(good, 'ffffffffffff').some((error) => /isn't this round's brief/.test(error)));
+});
+
+test("in the human round nothing moves to the person, since it's all theirs already", () => {
+  const human = validateFixerReport({ schema: FIXER_SCHEMA, brief: context.briefId, findings: good }, { ...context, allowNeedsPerson: false });
+  assert.ok(!human.ok && human.errors.some((error) => /needsPerson: not in the human round/.test(error)));
 });

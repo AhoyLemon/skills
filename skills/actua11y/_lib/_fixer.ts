@@ -28,6 +28,8 @@ export interface FixerContext {
   items: string[];
   // Full shas in base..HEAD, oldest first.
   commits: string[];
+  // False in the human round, where everything is already the person's and they're right there to decide.
+  allowNeedsPerson: boolean;
 }
 
 export type FixerCheck = { ok: true; report: FixerReport } | { ok: false; errors: string[] };
@@ -80,7 +82,8 @@ const checkFinding = (checker: Checker, where: string, value: Record<string, unk
   const needsPerson = text(checker, `${where}.needsPerson`, value['needsPerson'], false, 'why only a person can settle the rest');
   if (outcome !== 'partial' && left !== undefined) checker.errors.push(`${where}.left: only a partial fix leaves something`);
   if (outcome !== 'couldnt' && why !== undefined) checker.errors.push(`${where}.why: only a finding you couldn't fix needs a why`);
-  if (outcome === 'fixed' && needsPerson !== undefined) checker.errors.push(`${where}.needsPerson: a fixed finding doesn't need a person. Say partial or couldnt if part of it does`);
+  if (needsPerson !== undefined && !context.allowNeedsPerson) checker.errors.push(`${where}.needsPerson: not in the human round. Everything here is already the person's, so say partial or couldnt, and why, and they'll decide`);
+  else if (outcome === 'fixed' && needsPerson !== undefined) checker.errors.push(`${where}.needsPerson: a fixed finding doesn't need a person. Say partial or couldnt if part of it does`);
   const finding: FixerFinding = { id, outcome };
   if (commit) finding.commit = commit;
   if (how) finding.how = how;

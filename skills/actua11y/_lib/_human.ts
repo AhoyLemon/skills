@@ -25,7 +25,7 @@ export const closeOutCheck = (ledger: Ledger, ticked: ReadonlySet<string>, allow
   const refusals: string[] = [];
   if (ledger.stage !== 'human') refusals.push(ledger.stage === 'closed' ? 'This loop is already closed out' : 'The AI rounds aren\'t over yet');
   const waiting = waitingOnPerson(ledger, ticked);
-  if (waiting.unticked.length > 0) refusals.push(`The person hasn't ticked ${waiting.unticked.join(', ')}. Only they tick checks`);
+  if (waiting.unticked.length > 0) refusals.push(`The person hasn't ticked ${waiting.unticked.join(', ')}, or turned ${waiting.unticked.length === 1 ? 'it' : 'them'} into a finding. Only they settle checks`);
   if (waiting.undecided.length > 0) refusals.push(`The person hasn't decided ${waiting.undecided.join(', ')}: fix, accept as is, or not applicable`);
   const latest = latestPass(ledger) ?? null;
   if (!latest) refusals.push('No certifier pass has run yet');

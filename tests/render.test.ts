@@ -5,6 +5,7 @@ import { AAA_WARNING, BEST_FAITH } from '../skills/actua11y/_lib/_copy.ts';
 import { criteriaAt, type Level } from '../skills/actua11y/_lib/_criteria.ts';
 import { GITHUB_LIMIT, freshKept, regionOf, renderAgentIssue, renderPersonIssue, renderRawComments, safeText, tickedIn, YOURS_END, YOURS_START } from '../skills/actua11y/_lib/_render.ts';
 import { validateReport, type FinderReport } from '../skills/actua11y/_lib/_report.ts';
+import { fitWithRaw } from '../skills/actua11y/_lib/_render-loop.ts';
 import { claimFree, CLAIM, makeFacts, makeReport, makeSite, viewOf } from './_fixtures.ts';
 
 const repoRoot = makeSite();
@@ -164,4 +165,16 @@ test('finder text cannot ping people, auto-link issues or inject HTML', () => {
   assert.equal(safeText('Uses @media and #12 then </details>'), 'Uses &#64;media and &#35;12 then &lt;/details>');
   assert.equal(safeText('Leaves `@media (x)` alone'), 'Leaves `@media (x)` alone');
   assert.equal(safeText('two\n  lines'), 'two lines');
+});
+
+test('a loop comment too long for GitHub splits at its sections, each part under the limit and marked once', () => {
+  const sections = Array.from({ length: 30 }, (_, i) => `### Section ${i}\n\n${'Evidence that goes on. '.repeat(200)}`);
+  const body = ['<!-- actua11y:certifier v1 pass=2 -->', '## actua11y · certifier pass 2', '', ...sections].join('\n');
+  const comments = fitWithRaw(body, ['<!-- raw part -->\nraw']);
+  assert.ok(comments.length > 2);
+  assert.ok(comments.every((comment) => comment.length <= GITHUB_LIMIT));
+  const heads = comments.map((comment) => comment.split('\n')[0]);
+  assert.equal(heads[0], '<!-- actua11y:certifier v1 pass=2 -->');
+  assert.equal(new Set(heads).size, heads.length, 'every comment has its own first line');
+  assert.equal(comments.join('').match(/### Section /g)?.length, 30, 'nothing lost');
 });

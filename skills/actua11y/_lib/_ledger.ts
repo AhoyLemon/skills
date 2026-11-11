@@ -28,6 +28,8 @@ export interface Decision {
   choice: Choice;
   // The person's own words, found verbatim in their issue. Required for accept and n/a.
   reason: string | null;
+  // For a fix, how the person wants it solved, in their own words. The fixer follows it and the certifier sees it.
+  how: string | null;
 }
 
 // The commit a pass judged lives on its round, so a judgement only names the pass.
@@ -76,6 +78,9 @@ export interface HumanItem {
   words: string;
   tag: HumanTag;
   decision: Decision;
+  // The check this finding settles, when the person checked something and found a problem rather than ticking it.
+  check: string | null;
+  claim: Claim | null;
   judged: Judged | null;
   carried: number[];
 }
@@ -161,9 +166,11 @@ export const ledgerBlock = (ledger: Ledger): string => {
 };
 
 // Puts back what `lean` left out, in one fixed key order, so every loaded copy of a ledger hashes the same.
-const fullItem = (item: Partial<AgentItem> & Pick<AgentItem, 'id' | 'source' | 'status'>): AgentItem => ({ id: item.id, source: item.source, status: item.status, claim: item.claim ?? null, judged: item.judged ?? null, carried: item.carried ?? [], moved: item.moved ?? null, decision: item.decision ?? null });
+const fullDecision = (decision: Partial<Decision> & Pick<Decision, 'choice'>): Decision => ({ choice: decision.choice, reason: decision.reason ?? null, how: decision.how ?? null });
 
-const fullHuman = (item: Partial<HumanItem> & Pick<HumanItem, 'id' | 'words' | 'tag' | 'decision'>): HumanItem => ({ id: item.id, words: item.words, tag: item.tag, decision: item.decision, judged: item.judged ?? null, carried: item.carried ?? [] });
+const fullItem = (item: Partial<AgentItem> & Pick<AgentItem, 'id' | 'source' | 'status'>): AgentItem => ({ id: item.id, source: item.source, status: item.status, claim: item.claim ?? null, judged: item.judged ?? null, carried: item.carried ?? [], moved: item.moved ?? null, decision: item.decision ? fullDecision(item.decision) : null });
+
+const fullHuman = (item: Partial<HumanItem> & Pick<HumanItem, 'id' | 'words' | 'tag' | 'decision'>): HumanItem => ({ id: item.id, words: item.words, tag: item.tag, decision: fullDecision(item.decision), check: item.check ?? null, claim: item.claim ?? null, judged: item.judged ?? null, carried: item.carried ?? [] });
 
 const fullRound = (round: Partial<Round> & Pick<Round, 'kind' | 'n' | 'stage' | 'sha' | 'at'>): Round => ({ kind: round.kind, n: round.n, stage: round.stage, sha: round.sha, base: round.base ?? null, at: round.at, runId: round.runId ?? null, model: round.model ?? null, effort: round.effort ?? null, browser: round.browser ?? null, usage: round.usage ?? null, reported: round.reported ?? null, approved: round.approved ?? null, commentUrls: round.commentUrls ?? [], dryRunAt: round.dryRunAt ?? null });
 
@@ -292,7 +299,17 @@ export const roundBase = (ledger: Ledger): string => latestPass(ledger)?.sha ?? 
 // The ❌ still with the agents. Every pass judges all of them, not just the claimed ones, so a later fix can't quietly break an earlier one.
 export const agentItems = (ledger: Ledger): AgentItem[] => ledger.items.filter((item) => item.status !== 'moved');
 
-export const fixerItems = (ledger: Ledger): AgentItem[] => ledger.items.filter((item) => item.status === 'open' || item.status === 'claimed');
+// Whether a fix the person decided on still needs work: never judged yet, or judged still failing. A certifier's 🕵️ is a check for the person now, not work for a fixer.
+const stillToFix = (item: { judged: Judged | null }): boolean => item.judged === null || item.judged.result === 'notFixed';
+
+// What the fixer works. In the AI rounds, every ❌ still with the agents. In the human round, every fix the person decided on that isn't settled yet, and any agent fail a later fix broke again.
+export const fixerTargets = (ledger: Ledger): string[] => {
+  if (ledger.stage !== 'human') return ledger.items.filter((item) => item.status === 'open' || item.status === 'claimed').map((item) => item.id);
+  return [
+    ...ledger.items.filter((item) => item.status === 'open' || (item.status === 'moved' && item.decision?.choice === 'fix' && stillToFix(item))).map((item) => item.id),
+    ...ledger.human.filter((item) => item.decision.choice === 'fix' && stillToFix(item)).map((item) => item.id),
+  ];
+};
 
 export interface PassPlan {
   items: string[];
@@ -326,7 +343,7 @@ export const budgetLeft = (ledger: Ledger): number => (ledger.loop ? ledger.loop
 export const startLoop = (ledger: Ledger, loop: LoopInfo): Ledger => {
   const next = clone(ledger);
   next.loop = loop;
-  next.stage = fixerItems(next).length > 0 ? 'ai' : 'human';
+  next.stage = fixerTargets(next).length > 0 ? 'ai' : 'human';
   return next;
 };
 
@@ -341,18 +358,23 @@ export interface FixerRoundInput {
 
 export const applyFixer = (ledger: Ledger, report: FixerReport, input: FixerRoundInput): Ledger => {
   const next = clone(ledger);
+  const stage = next.stage === 'human' ? 'human' : 'ai';
   for (const finding of report.findings) {
+    const claim: Claim = { round: input.round, outcome: finding.outcome, commit: finding.commit ?? null };
+    const human = next.human.find((entry) => entry.id === finding.id);
+    if (human) human.claim = claim;
     const item = next.items.find((entry) => entry.id === finding.id);
     if (!item) continue;
-    item.claim = { round: input.round, outcome: finding.outcome, commit: finding.commit ?? null };
-    if (finding.outcome !== 'couldnt') item.status = 'claimed';
+    item.claim = claim;
+    // In the human round a fail the person decided to fix stays with them, claimed or not. Only an open agent fail becomes claimed.
+    if (finding.outcome !== 'couldnt' && item.status === 'open') item.status = 'claimed';
     // Anything the fixer says needs a person goes to the person's issue with its reason, rather than round the loop again.
     if (finding.needsPerson) {
       item.status = 'moved';
       item.moved = { by: 'fixer', at: input.round, why: finding.needsPerson, check: null };
     }
   }
-  next.rounds.push({ kind: 'fixer', n: input.round, stage: 'ai', sha: input.sha, base: input.base, at: input.at, runId: null, model: null, effort: null, browser: null, usage: null, reported: input.reported, approved: null, commentUrls: input.commentUrls, dryRunAt: null });
+  next.rounds.push({ kind: 'fixer', n: input.round, stage, sha: input.sha, base: input.base, at: input.at, runId: null, model: null, effort: null, browser: null, usage: null, reported: input.reported, approved: null, commentUrls: input.commentUrls, dryRunAt: null });
   return next;
 };
 
@@ -468,12 +490,16 @@ export interface HumanInput {
   words: string;
   tag: HumanTag;
   decision: Decision;
+  // The check it settles, when the person checked something and found a problem.
+  check?: string | null;
 }
 
 export const addHuman = (ledger: Ledger, input: HumanInput): { ledger: Ledger; id: string } => {
   const next = clone(ledger);
+  const check = input.check ?? null;
+  if (check !== null && !next.checks.some((entry) => entry.id === check)) throw new Error(`${check} isn't a check on the person's issue`);
   const id = nextId('H', next.human);
-  next.human.push({ id, words: input.words, tag: input.tag, decision: input.decision, judged: null, carried: [] });
+  next.human.push({ id, words: input.words, tag: input.tag, decision: input.decision, check, claim: null, judged: null, carried: [] });
   return { ledger: next, id };
 };
 
@@ -487,8 +513,15 @@ export const decide = (ledger: Ledger, id: string, decision: Decision): Ledger =
   return next;
 };
 
-// What still needs the person before close-out: checks to tick, and findings or moved fails without a decision.
+// The checks the person settled by finding a problem, each with the finding that settled it.
+export const checksWithFindings = (ledger: Ledger): Map<string, string[]> => {
+  const found = new Map<string, string[]>();
+  for (const item of ledger.human) if (item.check) found.set(item.check, [...(found.get(item.check) ?? []), item.id]);
+  return found;
+};
+
+// What still needs the person before close-out: checks neither ticked nor turned into a finding, and moved fails without a decision.
 export const waitingOnPerson = (ledger: Ledger, ticked: ReadonlySet<string>): { unticked: string[]; undecided: string[] } => ({
-  unticked: ledger.checks.map((check) => check.id).filter((id) => !ticked.has(id)),
+  unticked: ledger.checks.map((check) => check.id).filter((id) => !ticked.has(id) && !checksWithFindings(ledger).has(id)),
   undecided: ledger.items.filter((item) => item.status === 'moved' && item.moved?.check === null && item.decision === null).map((item) => item.id),
 });

@@ -39,7 +39,7 @@ test('ids follow the finder\'s report order, so the same report always gets the 
 });
 
 test('the ledger round-trips through an issue body, backticks in a person\'s words and all', () => {
-  const { ledger } = addHuman(started(), { words: 'The ```Join``` button is <tiny> and \\ odd', tag: { kind: 'ux' }, decision: { choice: 'fix', reason: null } });
+  const { ledger } = addHuman(started(), { words: 'The ```Join``` button is <tiny> and \\ odd', tag: { kind: 'ux' }, decision: { choice: 'fix', reason: null, how: null } });
   const body = `Some issue text\r\n\r\n${ledgerBlock(ledger)}\r\n`;
   assert.deepEqual(parseLedger(body.replace(/\n/g, '\r\n')), ledger);
   assert.equal(parseLedger('No ledger here'), null);
@@ -65,9 +65,9 @@ test('three fixer rounds without an approving pass hit the cap: every open fail 
   assert.deepEqual(moved?.carried, [1, 2, 3], 'every pass\'s steps travel with it');
   assert.deepEqual(waitingOnPerson(ledger, new Set(['P1', 'P2'])).undecided, ['A2']);
   assert.equal(ledger.items.find((item) => item.id === 'A1')?.status, 'certified');
-  const decided = decide(ledger, 'A2', { choice: 'fix', reason: null });
+  const decided = decide(ledger, 'A2', { choice: 'fix', reason: null, how: null });
   assert.deepEqual(passPlan(decided).items, ['A1', 'A2'], 'a fail the person decides to fix goes back to the certifier');
-  assert.deepEqual(passPlan(decide(ledger, 'A2', { choice: 'accept', reason: 'Later' })).items, ['A1'], 'an accepted one is out of scope');
+  assert.deepEqual(passPlan(decide(ledger, 'A2', { choice: 'accept', reason: 'Later', how: null })).items, ['A1'], 'an accepted one is out of scope');
 });
 
 test('a certifier 🕵️ turns an item into a check, and a new fail in the human round waits on the person', () => {
@@ -90,7 +90,7 @@ test('a long loop still fits: with 200 fails after six passes, the whole agent i
   const target = big.criteria.find((item) => item.num === '1.1.1');
   if (!target) throw new Error('fixture lost 1.1.1');
   target.fails = Array.from({ length: 200 }, (_, i) => ({ file: 'index.html', line: 5, what: `Fail ${i}`, whoItHurts: 'Someone', behaviour: false }));
-  let ledger = startLoop(initialLedger(big, makeFacts('A'), { url: null, serve: 'site' }), { branch: 'b', pr: 'https://github.com/o/r/pull/3', budgetUsd: 500 });
+  let ledger = startLoop(initialLedger(big, makeFacts('A'), { url: null, serve: 'site' }), { branch: 'b', pr: 'https://github.com/AhoyLemon/skills/pull/3', budgetUsd: 500 });
   const ids = ledger.items.map((item) => item.id);
   for (const pass of [1, 2, 3, 4, 5, 6]) {
     if (ledger.stage === 'ai') ledger = fixerRound(ledger, pass);
@@ -98,7 +98,7 @@ test('a long loop still fits: with 200 fails after six passes, the whole agent i
     ledger = applyPass(ledger, report, passVerdict(report, new Set(ids)), passInput(pass)).ledger;
   }
   const view = { ledger, finder: big, passes: new Map() };
-  const agent = renderAgentIssue(view, { personUrl: 'https://github.com/o/r/issues/2' });
+  const agent = renderAgentIssue(view, { personUrl: 'https://github.com/AhoyLemon/skills/issues/2' });
   assert.ok(agent.body.length <= GITHUB_LIMIT, `the body is ${agent.body.length} characters`);
   assert.ok(agent.comments.some((comment) => comment.kind === 'fails'), 'the rows moved into comments, and the ledger stayed');
   assert.deepEqual(parseLedger(agent.body), ledger);
