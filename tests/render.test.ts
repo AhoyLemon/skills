@@ -3,7 +3,7 @@ import { test } from 'node:test';
 
 import { AAA_WARNING, BEST_FAITH } from '../skills/actua11y/_lib/_copy.ts';
 import { criteriaAt, type Level } from '../skills/actua11y/_lib/_criteria.ts';
-import { GITHUB_LIMIT, freshKept, regionOf, renderAgentIssue, renderPersonIssue, renderRawComments, safeText, tickedIn, YOURS_END, YOURS_START } from '../skills/actua11y/_lib/_render.ts';
+import { GITHUB_LIMIT, freshKept, timeText, regionOf, renderAgentIssue, renderPersonIssue, renderRawComments, safeText, tickedIn, YOURS_END, YOURS_START } from '../skills/actua11y/_lib/_render.ts';
 import { validateReport, type FinderReport } from '../skills/actua11y/_lib/_report.ts';
 import { CERTIFIER_SCHEMA, type CertifierReport } from '../skills/actua11y/_lib/_certifier.ts';
 import { readRaw } from '../skills/actua11y/_lib/_fence.ts';
@@ -198,4 +198,28 @@ test("the person's issue title counts only what the finder filed, since a title 
   const view = viewOf(validReport('A'));
   const moved = { ...view, ledger: { ...view.ledger, items: view.ledger.items.map((item) => (item.id === 'A1' ? { ...item, status: 'moved' as const, moved: { by: 'cap' as const, at: 1, why: 'cap', check: null } } : item)) } };
   assert.equal(renderPersonIssue(moved, { agentUrl: AGENT_URL }, freshKept()).title, renderPersonIssue(view, { agentUrl: AGENT_URL }, freshKept()).title);
+});
+
+test("the person's checklist runs by level, then by the auditor's own groups, and each check still names its criterion", () => {
+  const raw = makeReport('AA') as { criteria: Record<string, unknown>[] };
+  const at = (num: string): Record<string, unknown> => raw.criteria.find((entry) => entry['num'] === num) ?? {};
+  const check = (what: string, group?: string): Record<string, unknown> => ({ what, how: 'Look', whyNotAMachine: 'A judgement', ...(group ? { group } : {}) });
+  at('1.1.1')['checks'] = [check('Moth alt', '/order.html')];
+  at('1.3.1')['checks'] = [check('Groupings', '/settle.html'), check('Reading order')];
+  Object.assign(at('1.4.3'), { na: undefined, checks: [check('Text over the photo', '/ORDER.html ')] });
+  delete at('1.4.3')['na'];
+  const result = validateReport(raw, { criteria: criteriaAt('AA'), repoRoot, tracked: new Set(['index.html', 'css/site.css']) });
+  if (!result.ok) throw new Error(result.errors.join('\n'));
+  const body = renderPersonIssue(viewOf(result.report, makeFacts('AA')), { agentUrl: AGENT_URL }, freshKept()).body;
+  const where = (text: string): number => body.indexOf(text);
+  const sequence = ['### Level A', '#### /order.html', 'Moth alt', '#### /settle.html', 'Groupings', '#### Everything else', 'Reading order', '### Level AA', '#### /ORDER.html', 'Text over the photo'];
+  sequence.forEach((text, i) => assert.ok(where(text) >= 0 && (i === 0 || where(text) > where(sequence[i - 1] ?? '')), `${text} comes after ${sequence[i - 1] ?? 'the top'}`));
+  assert.match(body, /\*\*P1\*\* Moth alt\n {2}- \*\*WCAG:\*\* \[1\.1\.1 Non-text Content\]\([^)]+\), which also has proven fails on the agent issue/);
+  assert.doesNotMatch(body, /### \[1\.1\.1/, 'no criterion headings any more');
+});
+
+test('cost tables tell time in the filing machine zone, and fall back to UTC', () => {
+  assert.equal(timeText('2026-11-12T15:13:00Z', 'America/Chicago'), 'Nov 12, 9:13 AM CST');
+  assert.equal(timeText('2026-11-12T15:13:00Z', 'Not/AZone'), 'Nov 12, 3:13 PM UTC');
+  assert.equal(timeText(null, 'UTC'), '—');
 });

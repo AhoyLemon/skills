@@ -258,7 +258,7 @@ export const CERTIFIER_SHAPE = `interface CertifierReport {
     // exactly one of these three:
     fixed?: { did: string; saw: string }[];                             // ✅ you found no fail now, and how
     notFixed?: { file: string; line: number; what: string; steps: string[] };   // ❌ still fails, with exact steps
-    needsPerson?: { what: string; how: string; whyNotAMachine: string };      // 🕵️ only a person can settle it
+    needsPerson?: { what: string; how: string; whyNotAMachine: string; group?: string };   // 🕵️ only a person can settle it
   }[];
   reran: {                       // one per carried repro in your brief, no others
     id: string;
@@ -273,6 +273,6 @@ export const CERTIFIER_SHAPE = `interface CertifierReport {
       num: string; file: string; line: number; what: string; whoItHurts: string;
       behaviour: boolean; repro?: string[];     // repro required when behaviour is true
     }[];
-    newChecks: { num: string; what: string; how: string; whyNotAMachine: string }[];   // 🕵️ new things for a person
+    newChecks: { num: string; what: string; how: string; whyNotAMachine: string; group?: string }[];   // 🕵️ new things for a person
   };
 }`;

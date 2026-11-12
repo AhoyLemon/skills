@@ -7,7 +7,7 @@ import type { Options } from './_args.ts';
 import type { Backend, RoleSpec } from './_backend.ts';
 import { fillTemplate, readBrief } from './_brief.ts';
 import { CERTIFIER_SHAPE, passVerdict, validateCertifierReport, type CertifierReport } from './_certifier.ts';
-import { openLoop, nextStep } from './_cmd-loop.ts';
+import { openLoop, nextStep, printNext } from './_cmd-loop.ts';
 import { criteriaTableFor, prepareRun, requireDryRun } from './_cmd-run.ts';
 import { banner } from './_copy.ts';
 import { axeTagsFor, criteriaAt, levelLabel } from './_criteria.ts';
@@ -270,8 +270,6 @@ export const fileCertifierRun = (input: FileCertifierInput): number => {
   if (outcome.ended?.why === 'cap' || outcome.ended?.why === 'budget') {
     warnLine(`${outcome.ended.why === 'cap' ? 'The loop hit its cap of 3 fixer rounds' : "The loop's budget ran out"} without an approving pass. ${plural(outcome.moved.length, 'fail', 'fails')} still failing moved to the person's issue, each with its repro steps. Say so plainly.`);
   }
-  const step = nextStep(next, state.kept?.ticked ?? new Set(), info.issueUrl);
-  out(step.says);
-  if (step.command) out(bold(`Next: ${step.command}`));
+  printNext(next, state.kept?.ticked ?? new Set(), info.issueUrl);
   return 0;
 };

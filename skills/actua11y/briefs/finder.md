@@ -25,7 +25,7 @@ One rule runs through all of it: **a machine can prove a fail, and it can never 
 Every criterion in the table gets exactly one entry, and the runner computes its verdict from what you put in it:
 
 - **`fails`** (❌): a fail you can prove. Each one needs the `file` and `line` in the repository where it lives, `what` is wrong, and `whoItHurts`. When it only shows up by doing something (pressing a key, opening a dialog, resizing), set `behaviour: true` and give exact `repro` steps a person can follow. The runner checks that every file and line exist.
-- **`checks`** (🕵️): what a machine can't settle. Each says `what` a person should check, `how` to check it, and `whyNotAMachine`.
+- **`checks`** (🕵️): what a machine can't settle. Each says `what` a person should check, `how` to check it, and `whyNotAMachine`. Give each one a `group` too: a short label for where or how the person will test it, so they can work through their list in batches. A page (`/settle.html`) suits a small site, a tool (`With a screen reader`) suits a big one. Pick what suits this site, and use the exact same label for checks that belong together. The person's list sorts by level first, then by these labels in the order they first appear.
 - **`evidence`** (✅): only when a machine can actually decide the criterion and you found no fail. Each says what you `did` (which pages, which tool, which elements) and what you `saw`.
 - **`na`**: a one-line reason the criterion doesn't apply here (no video anywhere, say), with nothing else alongside it.
 

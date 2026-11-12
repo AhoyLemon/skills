@@ -221,6 +221,12 @@ test('a whole loop runs on GitHub alone: two fixer rounds, two passes, a human f
   assert.match(closed?.body ?? '', /\*\*H1\*\*[^\n]*: certified at `[0-9a-f]{12}` by pass 3/);
   assert.match(closed?.body ?? '', /\*\*H2\*\*[^\n]*accept as is, because “I'm fine with that, it's the brand\.”/);
   assert.match(closed?.body ?? '', /This closes #1\nThis closes #2\n$/, 'the closing lines come last, one per line');
+  const costs = (closed?.body ?? '').split('## Cost and time')[1] ?? '';
+  const runs = costs.split('\n').filter((line) => line.startsWith('| ') && !line.startsWith('| Run ')).map((line) => line.split(' | ')[0]?.replace('| ', ''));
+  assert.deepEqual(runs, ['Finder', 'Fixer round 1', 'Certifier pass 1', 'Fixer round 2', 'Certifier pass 2', 'Fixer round 3', 'Certifier pass 3', '**Total**'], 'one row per run, oldest first, and a total');
+  const spent = ledgerOf(gh, agentUrl).spentUsd;
+  assert.ok(costs.includes(`| $${spent.toFixed(2)}, plus the fixer in your session | $${(60 - spent).toFixed(2)} of $60.00 |`), 'the total is what the loop spent, and the budget left follows from it');
+  assert.match(costs, /\| Fixer round 1 \| your session's \|[^\n]*\| billed to your session \|/);
   assert.equal(ledgerOf(gh, agentUrl).stage, 'closed');
 
   // A fresh load from GitHub alone renders exactly what's there.

@@ -49,7 +49,9 @@ Ask these together where you can, and keep it brisk.
 - **Why a real browser.** Say it plainly: the finder and the certifier drive the user's installed Chrome or Edge, headless, because keyboard behaviour, focus and rendered contrast only exist once a page is running. Some people don't want that by default, so they should hear why.
 - **Assess-only, or the full loop.** Assess-only files the two issues and stops. The loop goes on to fix every ❌, certify each fix blind, hand the rest to a person, and close both issues with one PR. Either is a real option, and an assess-only run can become a loop later.
 - **Filing.** Say where it will file: two issues on this repository's GitHub, one for agents and one for a person, assigned to them. For the loop, also a branch and a draft PR, which stays a draft until close-out. Get their OK before the first real run.
-- **Cost.** `--help` prints each session's default model and effort and its caps: 300 turns, $20 and 60 minutes, shared across any correction rounds. For the loop there's also a budget for everything the runner starts across the whole loop (dry runs, the finder, every certifier pass), $60 unless they say otherwise. The fixer runs as a subagent in this session, so its cost lands here and is reported as tokens and minutes, never counted against that budget. Say all of it, and pass `--model`, `--effort`, `--max-turns`, `--max-budget-usd`, `--timeout-minutes` or `--budget-usd` if the user wants different.
+- **The model.** Its own question, never bundled with anything else: which model the finder and the certifier run on, with the default from `--help` as the recommended answer and a cheaper one as the alternative. Pass `--model` (and `--effort`, if they want a different one) to every command that starts a session.
+- **The loop's budget.** Its own question too: the most the runner may spend across the whole loop (dry runs, the finder, every certifier pass), with $60 as the recommended answer. Pass it as `--budget-usd` to `loop start`. Say that the fixer runs as a subagent in this session, so its cost lands here, reported as tokens and minutes, and never counts against that budget.
+- **The per-session caps,** in a line, not a question: each session stops at 300 turns, $20 or 60 minutes, shared across any correction rounds. Pass `--max-turns`, `--max-budget-usd` or `--timeout-minutes` only if the user asks for different.
 
 ### 1. Preflight
 
@@ -118,23 +120,25 @@ Then `status` says what's next. Not approved means back to step 6 with what stil
 
 ### 8. Report back
 
-When the AI rounds end, approved or at the cap, the runner posts a report back on the PR. Tell the user the same in the session: what the AI did alone, what's waiting on them (the person's issue), what it cost, and a URL to test. For a static site, `node <base>/runner.ts serve --serve <folder>` serves it on localhost until they stop it.
+When the AI rounds end, approved or at the cap, the runner posts a report back on the PR, with a cost table of every run so far. The record is there, so keep the session short. In two or three lines, say what the AI did alone and what it cost, then relay the runner's **"Your turn" block** as it stands, add a URL to test, and stop. For a static site, `node <base>/runner.ts serve --serve <folder>` serves it on localhost until they stop it. Don't restate the checklist or explain the rest of the loop unless they ask.
 
 ### 9. The human round
 
 The human round is the person and the fixer working together, with a blind certifier guarding every fix. The person works their own issue, with real devices, a screen reader and their own thumbs. For each 🕵️ check:
 
-- **If it holds up,** they tick it. Only they tick checks, never you and never a certifier.
-- **If it doesn't,** they leave it unticked. They write what's wrong, and how they want it solved, between the two markers in their issue's "What I found by using it" section (or in a comment on their issue). You record that as a finding that settles the check.
+- **If it holds up,** they tick it. Only they tick checks, never you and never a certifier. If they ask you to tick for them, push back: the tick is their word that they checked it, and an edit through `gh` would show as theirs. Leave the choice with them.
+- **If it doesn't,** they leave it unticked and comment on their issue with what's wrong and how they want it solved. You record that as a finding that settles the check.
 
-They also write down anything else they find by using it, and decide each ❌ moved to them: fix it, accept it as it is (with a reason), or not applicable (with a reason).
+They also comment with anything else they find by using it, and decide each ❌ moved to them: fix it, accept it as it is (with a reason), or not applicable (with a reason).
+
+**Their words go on the issue, and chat is for saying they're done.** Every time it's their turn, the runner prints a "Your turn" block: relay it as it stands and stop. If they answer in chat anyway, say in one line that it goes on their issue, since the runner records only words it finds there. Offer their own text back, ready to paste, only if they ask.
 
 Record each one with the runner, in their words, which it checks against their issue word for word:
 
 - `node <base>/runner.ts record finding --issue <n> --words "<their words>" (--criterion <num> | --ux) [--check <P4>] --decision fix|accept|na [--how "<their words>" | --reason "<their words>"]`
 - `node <base>/runner.ts record decision --issue <n> --item <A7 or H2> --decision fix|accept|na [--how "<their words>" | --reason "<their words>"]`
 
-Ask whether each finding is a WCAG criterion (which one) or a UX problem. The runner works out the level, and whether it's inside the target, from the table. Findings outside the target are recorded and fixed if they want, and never hold up close-out. `--check` links a finding to the check it came from. `--how` is how they want it solved, for a fix, and `--reason` is why, for accept or n/a. The runner wants at least three of their words for each, matched whole, so a fragment can't stand in for what they meant. If any of their words aren't in their issue yet, ask them to write them there. Don't type them in for them.
+Before you record a finding, check it against the code. If it would undo a fix the loop already made, or the code already does it another way for a good reason (a `role="status"` they want swapped for `role="alert"`, say), tell them what you found and ask once. They decide. Ask whether each finding is a WCAG criterion (which one) or a UX problem. The runner works out the level, and whether it's inside the target, from the table. Findings outside the target, and UX findings, are recorded and fixed if they want, and never hold up close-out. When the runner says so after recording one, tell them in a line: happy to, but it isn't a WCAG fix and doesn't count toward the audit. `--check` links a finding to the check it came from. `--how` is how they want it solved, for a fix, and `--reason` is why, for accept or n/a. The runner wants at least three of their words for each, matched whole, so a fragment can't stand in for what they meant. If any of their words aren't in their issue yet, ask them to write them there. Don't type them in for them.
 
 Then the fixes:
 

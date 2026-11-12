@@ -104,6 +104,8 @@ export interface Round {
   approved: boolean | null;
   commentUrls: string[];
   dryRunAt: string | null;
+  // What that dry run cost when this pass was the one charged for it, so cost tables can itemise every dollar.
+  dryRunUsd: number | null;
 }
 
 export interface LoopInfo {
@@ -174,7 +176,7 @@ const fullItem = (item: Partial<AgentItem> & Pick<AgentItem, 'id' | 'source' | '
 
 const fullHuman = (item: Partial<HumanItem> & Pick<HumanItem, 'id' | 'words' | 'tag' | 'decision'>): HumanItem => ({ id: item.id, words: item.words, tag: item.tag, decision: fullDecision(item.decision), check: item.check ?? null, claim: item.claim ?? null, judged: item.judged ?? null, carried: item.carried ?? [] });
 
-const fullRound = (round: Partial<Round> & Pick<Round, 'kind' | 'n' | 'stage' | 'sha' | 'at'>): Round => ({ kind: round.kind, n: round.n, stage: round.stage, sha: round.sha, base: round.base ?? null, at: round.at, runId: round.runId ?? null, model: round.model ?? null, effort: round.effort ?? null, browser: round.browser ?? null, usage: round.usage ?? null, reported: round.reported ?? null, approved: round.approved ?? null, commentUrls: round.commentUrls ?? [], dryRunAt: round.dryRunAt ?? null });
+const fullRound = (round: Partial<Round> & Pick<Round, 'kind' | 'n' | 'stage' | 'sha' | 'at'>): Round => ({ kind: round.kind, n: round.n, stage: round.stage, sha: round.sha, base: round.base ?? null, at: round.at, runId: round.runId ?? null, model: round.model ?? null, effort: round.effort ?? null, browser: round.browser ?? null, usage: round.usage ?? null, reported: round.reported ?? null, approved: round.approved ?? null, commentUrls: round.commentUrls ?? [], dryRunAt: round.dryRunAt ?? null, dryRunUsd: round.dryRunUsd ?? null });
 
 export const parseLedger = (body: string): Ledger | null => {
   const at = body.indexOf(START);
@@ -384,7 +386,7 @@ export const applyFixer = (ledger: Ledger, report: FixerReport, input: FixerRoun
       item.moved = { by: 'fixer', at: input.round, why: finding.needsPerson, check: null };
     }
   }
-  next.rounds.push({ kind: 'fixer', n: input.round, stage, sha: input.sha, base: input.base, at: input.at, runId: null, model: null, effort: null, browser: null, usage: null, reported: input.reported, approved: null, commentUrls: input.commentUrls, dryRunAt: null });
+  next.rounds.push({ kind: 'fixer', n: input.round, stage, sha: input.sha, base: input.base, at: input.at, runId: null, model: null, effort: null, browser: null, usage: null, reported: input.reported, approved: null, commentUrls: input.commentUrls, dryRunAt: null, dryRunUsd: null });
   return next;
 };
 
@@ -461,7 +463,7 @@ export const applyPass = (ledger: Ledger, report: CertifierReport, verdict: Pass
   });
   const countDryRun = input.dryRun !== null && input.dryRun.at !== next.facts.dryRunAt && !next.rounds.some((round) => round.dryRunAt === input.dryRun?.at);
   next.spentUsd += input.usage.costUsd + (countDryRun ? (input.dryRun?.costUsd ?? 0) : 0);
-  next.rounds.push({ kind: 'certifier', n: input.pass, stage, sha: input.sha, base: null, at: input.at, runId: input.runId, model: input.model, effort: input.effort, browser: input.browser, usage: input.usage, reported: null, approved: verdict.approved, commentUrls: input.commentUrls, dryRunAt: input.dryRun?.at ?? null });
+  next.rounds.push({ kind: 'certifier', n: input.pass, stage, sha: input.sha, base: null, at: input.at, runId: input.runId, model: input.model, effort: input.effort, browser: input.browser, usage: input.usage, reported: null, approved: verdict.approved, commentUrls: input.commentUrls, dryRunAt: input.dryRun?.at ?? null, dryRunUsd: countDryRun ? (input.dryRun?.costUsd ?? null) : null });
 
   let ended: Ledger['stopped'] = null;
   if (stage === 'ai') {

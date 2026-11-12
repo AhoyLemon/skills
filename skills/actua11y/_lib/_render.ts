@@ -30,6 +30,8 @@ export interface RunFacts {
   // Every path the runner's own server sent back, when it served the site.
   served: string[] | null;
   finishedAt: string;
+  // The filing machine's time zone, kept so every later render shows the same times wherever it runs.
+  timeZone?: string;
 }
 
 export type OverflowKind = 'evidence' | 'fails' | 'checks';
@@ -78,6 +80,87 @@ export const formatUsage = (usage: Usage): string => {
 
 export const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
 
+// ---- Cost tables, the same shape on every issue and comment ----
+
+export interface CostRow {
+  // Which run this is, so one comment can pick its own row: finder, fixer-<round> or certifier-<run id>.
+  key: string;
+  run: string;
+  model: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  tokens: number | null;
+  // Null for a fixer, which bills the person's own session.
+  spendUsd: number | null;
+  // What's left of the loop's budget after this run. Null before the loop starts.
+  leftUsd: number | null;
+}
+
+export const timeText = (iso: string | null, timeZone: string): string => {
+  const ms = iso === null ? Number.NaN : Date.parse(iso);
+  if (Number.isNaN(ms)) return '—';
+  const format = (zone: string): string => new Intl.DateTimeFormat('en-US', { timeZone: zone, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(ms).replace(' at ', ', ');
+  try {
+    return format(timeZone);
+  } catch {
+    return format('UTC');
+  }
+};
+
+const tokenCount = (tokens: number | null): string => (tokens === null ? 'unreported' : tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(2)}M` : `${(tokens / 1000).toFixed(1)}k`);
+const before = (iso: string, ms: number): string | null => (Number.isNaN(Date.parse(iso)) ? null : new Date(Date.parse(iso) - ms).toISOString());
+const modelText = (model: string | null, effort: string | null): string => (model ? `\`${model}\`${effort ? ` at ${effort}` : ''}` : '—');
+
+export const COST_NOTE = "Spend is the agent's own estimate, and each run's includes the dry run that cleared it to start. A fixer runs in your own session and bills there, so its tokens are what that session reported.";
+
+export const fixerCostRow = (round: number, at: string, reported: { tokens: number | null; minutes: number | null } | null, leftUsd: number | null): CostRow => {
+  const minutes = reported?.minutes ?? null;
+  return { key: `fixer-${round}`, run: `Fixer round ${round}`, model: "your session's", startedAt: minutes === null ? null : before(at, minutes * 60_000), endedAt: at, tokens: reported?.tokens ?? null, spendUsd: null, leftUsd };
+};
+
+// Every run the loop knows of, oldest first, with the budget left after each.
+export const costRows = (ledger: Ledger): CostRow[] => {
+  const { facts } = ledger;
+  const budget = ledger.loop?.budgetUsd ?? null;
+  let spent = 0;
+  const left = (): number | null => (budget === null ? null : budget - spent);
+  const finder = facts.usage.costUsd + (facts.dryRunUsage?.costUsd ?? 0);
+  spent += finder;
+  const rows: CostRow[] = [{ key: 'finder', run: 'Finder', model: modelText(facts.model, facts.effort), startedAt: before(facts.finishedAt, facts.usage.durationMs), endedAt: facts.finishedAt, tokens: totalTokens(facts.usage), spendUsd: finder, leftUsd: left() }];
+  for (const round of ledger.rounds) {
+    if (round.kind === 'fixer') {
+      rows.push(fixerCostRow(round.n, round.at, round.reported, left()));
+      continue;
+    }
+    const spend = (round.usage?.costUsd ?? 0) + (round.dryRunUsd ?? 0);
+    spent += spend;
+    rows.push({ key: `certifier-${round.runId ?? round.n}`, run: `Certifier pass ${round.n}`, model: modelText(round.model, round.effort), startedAt: round.usage ? before(round.at, round.usage.durationMs) : null, endedAt: round.at, tokens: round.usage ? totalTokens(round.usage) : null, spendUsd: spend, leftUsd: left() });
+  }
+  const rest = ledger.spentUsd - spent;
+  if (rest > 0.005) {
+    spent += rest;
+    rows.push({ key: 'other', run: "Runs that couldn't be filed, and anything else not itemised", model: '—', startedAt: null, endedAt: null, tokens: null, spendUsd: rest, leftUsd: left() });
+  }
+  return rows;
+};
+
+export const costTable = (rows: CostRow[], ledger: Ledger, withTotal = false): string[] => {
+  const zone = ledger.facts.timeZone ?? 'UTC';
+  const budget = ledger.loop?.budgetUsd ?? null;
+  const leftText = (left: number | null): string => (left === null || budget === null ? '—' : `$${left.toFixed(2)} of $${budget.toFixed(2)}`);
+  const line = (row: CostRow): string => `| ${row.run} | ${row.model} | ${timeText(row.startedAt, zone)} | ${timeText(row.endedAt, zone)} | ${row.tokens === null && row.spendUsd !== null ? '—' : tokenCount(row.tokens)} | ${row.spendUsd === null ? 'billed to your session' : `$${row.spendUsd.toFixed(2)}`} | ${leftText(row.leftUsd)} |`;
+  const lines = ['| Run | Model | Started | Ended | Tokens | Spend | Budget left |', '|---|---|---|---|---|---|---|', ...rows.map(line)];
+  if (withTotal) {
+    const starts = rows.map((row) => row.startedAt).filter((at): at is string => at !== null).sort();
+    const ends = rows.map((row) => row.endedAt).filter((at): at is string => at !== null).sort();
+    const unreported = rows.some((row) => row.tokens === null && row.spendUsd === null);
+    const tokens = rows.reduce((sum, row) => sum + (row.tokens ?? 0), 0);
+    const spend = rows.reduce((sum, row) => sum + (row.spendUsd ?? 0), 0);
+    lines.push(`| **Total** | | ${timeText(starts[0] ?? null, zone)} | ${timeText(ends.at(-1) ?? null, zone)} | ${tokenCount(tokens)}${unreported ? ', with some unreported' : ''} | $${spend.toFixed(2)}, plus the fixer in your session | ${leftText(budget === null ? null : budget - spend)} |`);
+  }
+  return lines;
+};
+
 export const marker = (kind: string, facts: RunFacts): string => `<!-- actua11y:${kind} v1 run=${facts.runId} level=${facts.level} commit=${facts.commit} -->`;
 
 export const warningBlock = (level: Level): string => warningsFor(level).map((line) => `> ${line}`).join('\n>\n');
@@ -98,7 +181,7 @@ export const pagesList = (pages: string[]): string => {
 
 export const servedLine = (served: string[] | null): string[] => (served === null ? [] : [`- **Paths the runner's own server sent, to check that list against:** ${served.length > 0 ? pagesList(served).replace('in the raw report', 'in the run record') : 'none'}`]);
 
-const usedSection = (report: FinderReport, facts: RunFacts): string => {
+const usedSection = (report: FinderReport, facts: RunFacts, ledger: Ledger): string => {
   const lines = [
     '## What the finder used',
     '',
@@ -109,8 +192,13 @@ const usedSection = (report: FinderReport, facts: RunFacts): string => {
     `- **Tools:** ${report.used.tools.map(safeText).join(', ')}`,
     `- **Session:** a fresh, read-only ${facts.backend} session with none of your settings, memory or plugins. Model \`${facts.model}\`, effort \`${facts.effort}\``,
     ...(facts.fences ? [`- **Fences:** the rules refused ${plural(facts.fences.denials, 'tool call', 'tool calls')}, and ${plural(facts.fences.mentions, 'tool call', 'tool calls')} named a path the finder must never read`] : []),
-    `- **Cost:** finder ${formatUsage(facts.usage)}${facts.dryRunUsage ? `, dry run ${formatUsage(facts.dryRunUsage)}` : ''}. Costs are the agent's own estimates`,
-    `- **Run:** \`${facts.runId}\`, finished ${facts.finishedAt}`,
+    `- **Run:** \`${facts.runId}\``,
+    '',
+    '### This run',
+    '',
+    ...costTable(costRows(ledger).slice(0, 1), ledger),
+    '',
+    COST_NOTE,
   ];
   return lines.join('\n');
 };
@@ -241,7 +329,7 @@ export const renderAgentIssue = (view: LoopView, links: { personUrl: string | nu
       ? "## ❌ For agents\n\nThe finder proved no fails. That's not the same as finding nothing wrong: see the person's issue for everything a machine couldn't settle."
       : ['## ❌ For agents', intro, ...(failsInline ? failBlocks : [`The list is in the comments below, ${TOO_LONG}.`])].join('\n\n');
     const evidencePart = clear.length === 0 ? '' : evidenceInline ? wrapEvidence(clear.length, evidence.join('\n\n')) : `The ✅ list and its evidence are in the first comment, ${TOO_LONG}.`;
-    return [marker('agent-issue', facts), warningBlock(facts.level), '', `${targetLine(facts)} · ${person}`, '', '## Tally', '', tallyTable(finder), '', loopLine(view), failSection, '', usedSection(finder, facts), '', naSection(na), '', evidencePart, '', ledgerBlock(ledger), ''].join('\n');
+    return [marker('agent-issue', facts), warningBlock(facts.level), '', `${targetLine(facts)} · ${person}`, '', '## Tally', '', tallyTable(finder), '', loopLine(view), failSection, '', usedSection(finder, facts, ledger), '', naSection(na), '', evidencePart, '', ledgerBlock(ledger), ''].join('\n');
   };
 
   const layoutUrl = `https://github.com/${facts.repo.owner}/${facts.repo.name}/issues/${LAYOUT_ISSUE_NUMBER}`;
@@ -286,21 +374,57 @@ export const tagText = (item: HumanItem, level: Level): string => {
   return `WCAG ${criterionHeading(item.tag.num)}, ${inside ? 'inside the target' : 'outside the target, so it never holds up close-out'}`;
 };
 
+interface CheckRow {
+  index: number;
+  level: Level | 'UX';
+  group: string | null;
+  text: string;
+  order: number;
+}
+
+const LEVEL_SECTIONS: readonly (Level | 'UX')[] = ['A', 'AA', 'AAA', 'UX'];
+const groupKey = (group: string): string => group.replace(/\s+/g, ' ').trim().toLowerCase();
+
+// The person's checklist by level, then by the auditor's own group labels in the order they first appear, so they can test one page or one tool at a time. One block per group, each led by its headings.
+export const checkSections = (rows: CheckRow[]): string[] => {
+  const blocks: string[] = [];
+  for (const level of LEVEL_SECTIONS) {
+    const here = rows.filter((row) => row.level === level).sort((a, b) => a.order - b.order || a.index - b.index);
+    if (here.length === 0) continue;
+    const groups = new Map<string, { label: string | null; rows: CheckRow[] }>();
+    for (const row of here) {
+      const key = row.group === null ? '' : groupKey(row.group);
+      const entry = groups.get(key) ?? { label: row.group === null ? null : safeText(row.group.replace(/\s+/g, ' ').trim()), rows: [] };
+      entry.rows.push(row);
+      groups.set(key, entry);
+    }
+    const ungrouped = groups.get('');
+    groups.delete('');
+    const ordered = [...groups.values(), ...(ungrouped ? [{ label: groups.size > 0 ? 'Everything else' : null, rows: ungrouped.rows }] : [])];
+    ordered.forEach((group, i) => {
+      const heading = [...(i === 0 ? [level === 'UX' ? '### UX, outside WCAG' : `### Level ${level}`, ''] : []), ...(group.label ? [`#### ${group.label}`, ''] : [])];
+      blocks.push([...heading, ...group.rows.map((row) => row.text)].join('\n'));
+    });
+  }
+  return blocks;
+};
+
 export const renderPersonIssue = (view: LoopView, links: { agentUrl: string }, kept: Kept): RenderedIssue => {
   const { ledger, finder } = view;
   const facts = ledger.facts;
   const order = finder.criteria.map((result) => result.num);
   const found = checksWithFindings(ledger);
-  const checks = groupByNum(ledger.checks.map((item) => {
+  const rows = ledger.checks.map((item, index): CheckRow => {
     const content = checkOf(view, item);
+    const criterion = criterionByNum(content.num);
+    const failing = finder.criteria.find((result) => result.num === content.num);
+    const wcag = criterion ? `\n  - **WCAG:** [${content.num} ${criterion.name}](${criterion.understanding})${failing && verdictOf(failing) === 'fail' ? ', which also has proven fails on the agent issue' : ''}` : '';
     const origin = content.origin === 'the finder' ? '' : `\n  - **From:** ${content.origin}`;
     const problem = found.has(item.id) ? `\n  - **You found a problem:** ${(found.get(item.id) ?? []).join(', ')}, below` : '';
-    return { num: content.num, value: `- [${kept.ticked.has(item.id) ? 'x' : ' '}] **${item.id}** ${safeText(content.check.what)}\n  - **How:** ${safeText(content.check.how)}\n  - **Why a machine can't:** ${safeText(content.check.whyNotAMachine)}${origin}${problem}` };
-  }));
-  const checkBlocks = [...checks.entries()].sort(([a], [b]) => order.indexOf(a) - order.indexOf(b)).map(([num, items]) => {
-    const failing = finder.criteria.find((result) => result.num === num);
-    return [`### ${criterionHeading(num)}${failing && verdictOf(failing) === 'fail' ? ' (also has proven fails on the agent issue)' : ''}`, '', ...items].join('\n');
+    const text = `- [${kept.ticked.has(item.id) ? 'x' : ' '}] **${item.id}** ${safeText(content.check.what)}${wcag}\n  - **How:** ${safeText(content.check.how)}\n  - **Why a machine can't:** ${safeText(content.check.whyNotAMachine)}${origin}${problem}`;
+    return { index, level: criterion?.level ?? 'UX', group: content.check.group ?? null, text, order: order.indexOf(content.num) };
   });
+  const checkBlocks = checkSections(rows);
   const moved = ledger.items.filter((item) => item.status === 'moved' && item.moved?.check === null);
   const movedBlocks = moved.map((item) => {
     const content = failOf(view, item);
@@ -317,13 +441,13 @@ export const renderPersonIssue = (view: LoopView, links: { agentUrl: string }, k
     if (since) lines.push(`  - **Since then:** ${since}`);
     return lines.join('\n');
   });
-  const intro = "A machine couldn't settle these, so each says what to check, how, and why it needs you. Tick one once you've checked it and it holds up. If it doesn't, don't tick it: write what's wrong, and how you want it solved, in your notes below, and the session running actua11y turns it into a finding for the fixer. Only you tick these, never a certifier.";
+  const intro = "A machine couldn't settle these, so each says what to check, how, and why it needs you. Tick one once it holds up. If it doesn't, leave it unticked and comment with what's wrong and how you want it solved, and the session running actua11y turns it into a finding for the fixer. Only you tick these, never a certifier.";
 
   const compose = (checksInline: boolean): string => {
     const checkSection = checkBlocks.length === 0
       ? "## 🕵️ To check\n\nThe finder left nothing for a person in its list. That's unusual, so use the site yourself before trusting it."
       : ['## 🕵️ To check', intro, ...(checksInline ? checkBlocks : [`The checklist is in the comments below, ${TOO_LONG}. You can tick boxes there too.`])].join('\n\n');
-    const movedSection = movedBlocks.length === 0 ? '' : ['## ❌ Moved to you from the agent issue', "Proven fails the AI rounds didn't settle. Each needs your decision: fix it, accept it as it is, or call it not applicable. Write your reason in the section below, and the session running actua11y records it word for word.", ...movedBlocks].join('\n\n');
+    const movedSection = movedBlocks.length === 0 ? '' : ['## ❌ Moved to you from the agent issue', "Proven fails the AI rounds didn't settle. Each needs your decision: fix it, accept it as it is, or call it not applicable. Comment with your decision and why, and the session running actua11y records it word for word.", ...movedBlocks].join('\n\n');
     const humanSection = humanBlocks.length === 0 ? '' : ['## Your findings and decisions', 'Recorded from what you wrote above, word for word.', ...humanBlocks].join('\n\n');
     return [
       marker('person-issue', facts),
@@ -331,19 +455,21 @@ export const renderPersonIssue = (view: LoopView, links: { agentUrl: string }, k
       '',
       `${targetLine(facts)} · [the agent issue](${links.agentUrl})${ledger.loop?.pr ? ` · [the PR](${ledger.loop.pr})` : ''}`,
       '',
+      "**Everything you decide goes here, on this issue.** Tick each check that holds up. For anything that doesn't, and anything else you find, comment here in your own words, with how you want it solved. The session running actua11y records only words it finds on this issue, so tell it in chat when you're done.",
+      '',
       checkSection,
       '',
       movedSection,
       '',
       '## What I found by using it',
       '',
-      "_Real devices, a screen reader, your own thumbs. Write what you find between the two markers you'll see when you edit this issue. actua11y keeps everything between them exactly as you wrote it. Say whether each one is a WCAG criterion (which one) or a UX problem, and what you want done about it: fix it, accept it as it is (and why), or not applicable (and why)._",
+      "_Real devices, a screen reader, your own thumbs. Comment with what you find, or write it between the two markers you'll see when you edit this issue, which actua11y keeps exactly as you wrote them. Say whether each one is a WCAG criterion (which one) or a UX problem, and what you want done: fix it (and how), accept it as it is (and why), or not applicable (and why)._",
       '',
       `${YOURS_START}${kept.region}${YOURS_END}`,
       '',
       humanSection,
       '',
-      usedSection(finder, facts),
+      usedSection(finder, facts, ledger),
       '',
     ].join('\n');
   };

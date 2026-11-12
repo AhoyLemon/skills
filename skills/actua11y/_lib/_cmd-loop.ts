@@ -10,6 +10,7 @@ import { levelLabel } from './_criteria.ts';
 import { FIXER_SHAPE, validateFixerReport } from './_fixer.ts';
 import { branchExists, branchSha, commitsBetween, commitSubject, createBranch, currentBranch, headCommit, isAncestor, originSlug, parseGithubSlug, porcelain, pushBranch, repoRoot, slugText, switchBranch } from './_git.ts';
 import { agentItems, applyFixer, budgetLeft, fixerRounds, fixerTargets, humanPassesSinceApproval, latestPass, MAX_FIXER_ROUNDS, MAX_HUMAN_PASSES, MIN_PASS_USD, passPlan, roundBase, startLoop, stopAi, waitingOnPerson, type Ledger, type LoopView } from './_ledger.ts';
+import { yourTurn } from './_human.ts';
 import { ensurePr, loadLoop, postRun, resolveAgentUrl, runTarget, saveLoop, type LoopGh, type LoopState } from './_loop.ts';
 import { formatUsage, plural } from './_render.ts';
 import { fixerItemsText, renderFixerComments, renderReportBack } from './_render-loop.ts';
@@ -78,10 +79,20 @@ export const nextStep = (ledger: Ledger, ticked: ReadonlySet<string>, agentUrl: 
   return { says: 'The latest pass approved, and the person has ticked, decided or turned into a finding everything.', command: `node runner.ts close-out ${issue}` };
 };
 
-const printNext = (step: NextStep): void => {
+// What comes next, and, when part of it is the person's, the short block the session relays to them as it stands.
+export const printNext = (ledger: Ledger, ticked: ReadonlySet<string>, agentUrl: string): void => {
+  const step = nextStep(ledger, ticked, agentUrl);
   out();
   out(step.says);
-  if (step.command) out(bold(`Next: ${step.command}`));
+  const turn = yourTurn(ledger, ticked);
+  if (turn.length > 0) {
+    out();
+    for (const line of turn) out(line);
+  }
+  if (step.command) {
+    out();
+    out(bold(`Next: ${step.command}`));
+  }
 };
 
 export const cmdLoopStart = (options: Options, client: LoopGh): number => {
@@ -111,7 +122,7 @@ export const cmdLoopStart = (options: Options, client: LoopGh): number => {
   saveLoop(client, state, { ledger: next, passes: state.view.passes });
   okLine(`budget for everything the runner starts: $${options.budgetUsd.toFixed(2)}, of which $${ledger.spentUsd.toFixed(2)} is already spent`);
   out(dim('The fixer runs as a subagent in this session, so its cost lands here and is reported as tokens and minutes, never counted against that budget.'));
-  printNext(nextStep(next, state.kept?.ticked ?? new Set(), agentUrl));
+  printNext(next, state.kept?.ticked ?? new Set(), agentUrl);
   return 0;
 };
 
@@ -216,16 +227,17 @@ export const cmdRecordFixer = (options: Options, client: LoopGh, input: string |
   const withPr: Ledger = { ...ledger, loop: { ...loop, pr } };
   const reported = { tokens: options.tokens, minutes: options.minutes };
   const subjects = (shas: string[]): { sha: string; subject: string }[] => shas.map((sha) => ({ sha, subject: commitSubject(root, sha) }));
-  const comments = renderFixerComments(state.view, report, { round: brief.round, reportId: createHash('sha256').update(JSON.stringify(report)).digest('hex').slice(0, 12), stage: ledger.stage === 'human' ? 'human' : 'ai', sha: head, base, commits: subjects(commits), before: subjects(before), reported });
+  const at = new Date().toISOString();
+  const comments = renderFixerComments(state.view, report, { round: brief.round, reportId: createHash('sha256').update(JSON.stringify(report)).digest('hex').slice(0, 12), stage: ledger.stage === 'human' ? 'human' : 'ai', sha: head, base, commits: subjects(commits), before: subjects(before), reported, at });
   const urls = postRun(client, runTarget(state, withPr), comments);
   okLine(`posted the fixer's report: ${urls[0] ?? ''}`);
-  const next = applyFixer(withPr, report, { round: brief.round, sha: head, base, at: new Date().toISOString(), reported, commentUrls: urls });
+  const next = applyFixer(withPr, report, { round: brief.round, sha: head, base, at, reported, commentUrls: urls });
   saveLoop(client, state, { ledger: next, passes: state.view.passes });
   const moved = report.findings.filter((finding) => finding.needsPerson).length;
   const count = (outcome: string): number => report.findings.filter((finding) => finding.outcome === outcome).length;
   okLine(`claimed: ${count('fixed')} fixed, ${count('partial')} in part. Couldn't: ${count('couldnt')}.${ledger.stage === 'human' ? '' : ` Moved to the person: ${moved}`}`);
   if (options.tokens === null || options.minutes === null) warnLine('the fixer\'s tokens or minutes weren\'t passed, so the record says "unreported". Pass --tokens and --minutes from the subagent\'s result next time');
-  printNext(nextStep(next, state.kept?.ticked ?? new Set(), agentUrl));
+  printNext(next, state.kept?.ticked ?? new Set(), agentUrl);
   return 0;
 };
 
@@ -239,7 +251,7 @@ export const cmdLoopStop = (options: Options, client: LoopGh): number => {
   saveLoop(client, state, { ledger: next, passes: state.view.passes });
   heading('The AI rounds are over');
   okLine(`${plural(moved.length, 'fail', 'fails')} still open moved to the person's issue, each with its repro steps`);
-  printNext(nextStep(next, state.kept?.ticked ?? new Set(), agentUrl));
+  printNext(next, state.kept?.ticked ?? new Set(), agentUrl);
   return 0;
 };
 
@@ -258,6 +270,6 @@ export const cmdStatus = (options: Options, client: LoopGh): number => {
   if (state.kept === null) warnLine("the markers around the person's own notes are gone from their issue, so actua11y won't rewrite it until they're back");
   const latest = latestPass(ledger);
   if (latest?.usage) out(dim(`  Latest certifier run: ${formatUsage(latest.usage)}`));
-  printNext(nextStep(ledger, ticked, agentUrl));
+  printNext(ledger, ticked, agentUrl);
   return 0;
 };

@@ -19,6 +19,8 @@ export interface HumanCheck {
   what: string;
   how: string;
   whyNotAMachine: string;
+  // A short label of the auditor's choosing, such as a page or a tool, that the person's checklist groups by within each level.
+  group?: string;
 }
 
 export interface Evidence {
@@ -65,7 +67,10 @@ const TOP_KEYS = new Set(['schema', 'used', 'criteria']);
 const USED_KEYS = new Set(['tools', 'pages']);
 const CRITERION_KEYS = new Set(['num', 'fails', 'checks', 'evidence', 'na']);
 const FAIL_KEYS = new Set(['file', 'line', 'what', 'whoItHurts', 'behaviour', 'repro']);
-const CHECK_KEYS = new Set(['what', 'how', 'whyNotAMachine']);
+const CHECK_KEYS = new Set(['what', 'how', 'whyNotAMachine', 'group']);
+
+// Long enough for a page path or a tool, short enough to be a heading.
+export const MAX_GROUP = 60;
 const EVIDENCE_KEYS = new Set(['did', 'saw']);
 
 // The verdict follows from the items: a proven fail outranks an open question, which outranks evidence. Nothing is measured and then left off the books.
@@ -194,7 +199,12 @@ export const checkCheck = (checker: Checker, where: string, value: unknown): Hum
   if (!nonEmpty(how)) checker.errors.push(`${where}.how: required (how to check it)`);
   if (!nonEmpty(whyNotAMachine)) checker.errors.push(`${where}.whyNotAMachine: required (why a machine can't settle it)`);
   for (const [key, text] of [['what', what], ['how', how], ['whyNotAMachine', whyNotAMachine]] as const) if (nonEmpty(text)) checker.strings(`${where}.${key}`, text);
-  return nonEmpty(what) && nonEmpty(how) && nonEmpty(whyNotAMachine) ? { what, how, whyNotAMachine } : undefined;
+  const { group } = value;
+  const groupOk = group === undefined || (nonEmpty(group) && group.trim().length <= MAX_GROUP && !group.includes('\n'));
+  if (!groupOk) checker.errors.push(`${where}.group: when given, one line of at most ${MAX_GROUP} characters (a page or a tool the person can work by), or leave it out`);
+  else if (nonEmpty(group)) checker.strings(`${where}.group`, group);
+  if (!(nonEmpty(what) && nonEmpty(how) && nonEmpty(whyNotAMachine)) || !groupOk) return undefined;
+  return nonEmpty(group) ? { what, how, whyNotAMachine, group: group.trim() } : { what, how, whyNotAMachine };
 };
 
 export const checkEvidence = (checker: Checker, where: string, value: unknown): Evidence | undefined => {
@@ -313,7 +323,7 @@ export const REPORT_SHAPE = `interface FinderReport {
       behaviour: boolean;        // true if it only shows up by doing something
       repro?: string[];          // exact steps, required when behaviour is true
     }[];
-    checks?: { what: string; how: string; whyNotAMachine: string }[];   // 🕵️ for a person
+    checks?: { what: string; how: string; whyNotAMachine: string; group?: string }[];   // 🕵️ for a person, group optional
     evidence?: { did: string; saw: string }[];                          // ✅ a machine found no fail
     na?: string;                 // one-line reason, and nothing else alongside it
   }[];

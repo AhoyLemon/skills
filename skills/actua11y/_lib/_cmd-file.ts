@@ -39,6 +39,7 @@ export const factsFrom = (meta: RunMeta): RunFacts => {
     fences: { denials: meta.session.permissionDenials ?? 0, mentions: (meta.session.offLimitsMentions ?? []).reduce((sum, mention) => sum + mention.count, 0) },
     served: meta.served ?? null,
     finishedAt: meta.finishedAt ?? meta.createdAt,
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   };
 };
 

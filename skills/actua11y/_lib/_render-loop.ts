@@ -4,8 +4,8 @@ import type { CertifierReport, PassVerdict } from './_certifier.ts';
 import { criterionByNum } from './_criteria.ts';
 import { rawBlocks, GITHUB_LIMIT } from './_fence.ts';
 import type { FixerReport } from './_fixer.ts';
-import { carriedFor, checkOf, checksWithFindings, failOf, MAX_FIXER_ROUNDS, numOf, passes, passSha, roundOf, type AgentItem, type HumanItem, type Ledger, type LoopView, type PassPlan } from './_ledger.ts';
-import { chunkBlocks, codeLink, criterionHeading, decisionText, formatUsage, pagesList, plural, safeText, servedLine, shortSha, tagText, warningBlock } from './_render.ts';
+import { budgetLeft, carriedFor, checkOf, checksWithFindings, failOf, MAX_FIXER_ROUNDS, numOf, passSha, roundOf, type AgentItem, type HumanItem, type Ledger, type LoopView, type PassPlan } from './_ledger.ts';
+import { chunkBlocks, codeLink, COST_NOTE, costRows, costTable, criterionHeading, decisionText, fixerCostRow, formatUsage, pagesList, plural, safeText, servedLine, shortSha, tagText, warningBlock } from './_render.ts';
 import type { Used } from './_report.ts';
 
 const oneLine = (text: string): string => text.replace(/\s*\n\s*/g, ' ').trim();
@@ -99,7 +99,7 @@ export const outOfScopeText = (view: LoopView, plan: PassPlan): string => {
   }
   for (const check of ledger.checks) {
     const content = checkOf(view, check);
-    lines.push(`- ${check.id} (${content.num}): ${oneLine(content.check.what)}. A person checks this one, and only they can close it`);
+    lines.push(`- ${check.id} (${content.num}${content.check.group ? `, grouped under "${oneLine(content.check.group)}"` : ''}): ${oneLine(content.check.what)}. A person checks this one, and only they can close it`);
   }
   return lines.length > 0 ? lines.join('\n') : 'Nothing yet.';
 };
@@ -108,7 +108,6 @@ export const outOfScopeText = (view: LoopView, plan: PassPlan): string => {
 
 const bestFaith = (view: LoopView): string => warningBlock(view.ledger.facts.level);
 
-const tokensText = (tokens: number | null): string => (tokens === null ? 'unreported' : tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(2)}M tokens` : `${Math.round(tokens / 1000)}k tokens`);
 
 export interface FixerCommentInput {
   round: number;
@@ -121,6 +120,8 @@ export interface FixerCommentInput {
   // Commits the person made on the branch before this round began. The fixer doesn't claim them.
   before: { sha: string; subject: string }[];
   reported: { tokens: number | null; minutes: number | null };
+  // When the runner recorded the round, the same instant the ledger keeps.
+  at: string;
 }
 
 export const renderFixerComments = (view: LoopView, report: FixerReport, input: FixerCommentInput): string[] => {
@@ -133,16 +134,19 @@ export const renderFixerComments = (view: LoopView, report: FixerReport, input: 
     return entries.length === 0 ? [] : [`### ${title} (${entries.length})`, '', ...entries.map(line), ''];
   };
   const moved = report.findings.filter((entry) => entry.needsPerson);
-  const usage = input.reported.tokens === null && input.reported.minutes === null ? 'Unreported' : `${tokensText(input.reported.tokens)} · ${input.reported.minutes === null ? 'minutes unreported' : `${input.reported.minutes} min`}`;
   const body = [
     `<!-- actua11y:fixer v1 round=${input.round} report=${input.reportId} -->`,
     input.stage === 'human' ? `## actua11y · fixer round ${input.round}, in the human round` : `## actua11y · fixer round ${input.round} of at most ${MAX_FIXER_ROUNDS}`,
     '',
     bestFaith(view),
     '',
-    '| Role | Commits | Usage, as the orchestrating session reported it |',
-    '|---|---|---|',
-    `| A subagent in your own session, handed the runner's brief unchanged | ${shortSha(input.base)} to ${shortSha(input.sha)} | ${usage}. Its cost isn't measured, since it ran in your session and bills there |`,
+    `**By:** a subagent in your own session, handed the runner's brief unchanged · **Commits:** ${shortSha(input.base)} to ${shortSha(input.sha)}`,
+    '',
+    '### This run',
+    '',
+    ...costTable([fixerCostRow(input.round, input.at, input.reported, view.ledger.loop ? budgetLeft(view.ledger) : null)], view.ledger),
+    '',
+    COST_NOTE,
     '',
     'Each of these is a claim. Only a blind certifier, which never sees this comment, can make one ✅.',
     '',
@@ -219,9 +223,13 @@ export const renderCertifierComments = (view: LoopView, report: CertifierReport,
     '',
     `**Verdict, computed by the runner from the list below:** ${verdictText(verdict)}.`,
     '',
-    '| Commit | Model and effort | Turns | Minutes | Tokens | Cost | Transcript |',
-    '|---|---|---|---|---|---|---|',
-    `| ${shortSha(input.sha)} | \`${input.model}\` at \`${input.effort}\` | ${formatUsage(input.usage).split(' · ').join(' | ')} | \`${input.transcriptPath}\`, kept on the machine that ran it |`,
+    `**Commit:** ${shortSha(input.sha)} · **Transcript:** \`${input.transcriptPath}\`, kept on the machine that ran it`,
+    '',
+    '### This run',
+    '',
+    ...costTable(costRows(view.ledger).filter((row) => row.key === `certifier-${input.runId}`), view.ledger),
+    '',
+    COST_NOTE,
     '',
     'A fresh, read-only session that never saw this PR, the issues, git history or anyone\'s account of the fixes. ✅ here means it found no fail at this commit, by doing what it says.',
     '',
@@ -265,24 +273,7 @@ export const renderCertifierComments = (view: LoopView, report: CertifierReport,
 const certifiedList = (view: LoopView): string[] =>
   view.ledger.items.filter((item) => item.status === 'certified' && item.judged).map((item) => `- **${item.id}** ${criterionHeading(failOf(view, item).num)}, certified at ${shortSha(passSha(view.ledger, item.judged?.pass ?? 0))} by pass ${item.judged?.pass}${item.claim?.commit ? `, fixed in ${shortSha(item.claim.commit)}` : ''}`);
 
-export const fixerUsage = (ledger: Ledger): { rounds: number; tokens: number; minutes: number; unreported: boolean } => {
-  const rounds = ledger.rounds.filter((round) => round.kind === 'fixer');
-  return {
-    rounds: rounds.length,
-    tokens: rounds.reduce((sum, round) => sum + (round.reported?.tokens ?? 0), 0),
-    minutes: rounds.reduce((sum, round) => sum + (round.reported?.minutes ?? 0), 0),
-    unreported: rounds.some((round) => round.reported?.tokens === null || round.reported?.minutes === null),
-  };
-};
 
-const costLines = (ledger: Ledger): string[] => {
-  const runs = passes(ledger).length;
-  const fixer = fixerUsage(ledger);
-  return [
-    `- **What the runner started** (dry runs, the finder, and the certifier ${plural(runs, 'time', 'times')}): $${ledger.spentUsd.toFixed(2)}${ledger.loop ? ` of a $${ledger.loop.budgetUsd.toFixed(2)} budget` : ''}. Costs are the agent's own estimates`,
-    `- **The fixer**, in your own session, ${plural(fixer.rounds, 'round', 'rounds')}: ${tokensText(fixer.tokens)} and ${fixer.minutes} min as that session reported them${fixer.unreported ? ', with some unreported' : ''}. Not in the total above, since it bills your session`,
-  ];
-};
 
 export const testUrlText = (ledger: Ledger): string => (ledger.site.serve ? `\`node runner.ts serve --serve ${ledger.site.serve}\` serves it on localhost until you stop it` : (ledger.site.url ?? 'the site the loop audited'));
 
@@ -321,7 +312,9 @@ export const renderReportBack = (view: LoopView, links: { agentUrl: string }): s
     '',
     '### Cost so far',
     '',
-    ...costLines(ledger),
+    ...costTable(costRows(ledger), ledger, true),
+    '',
+    COST_NOTE,
     '',
     '### Test it',
     '',
@@ -365,7 +358,11 @@ export const renderCloseOutBody = (view: LoopView, input: CloseOutInput): string
   const fixLine = (item: AgentItem | HumanItem): string => {
     const label = 'words' in item ? `“${safeText(item.words)}” (${tagText(item, ledger.facts.level)})` : criterionHeading(failOf(view, item).num);
     const judged = item.judged;
-    const state = judged?.result === 'fixed' ? `certified at ${shortSha(passSha(ledger, judged.pass))} by pass ${judged.pass}` : judged ? `❌ still failing at ${shortSha(passSha(ledger, judged.pass))}` : 'never judged';
+    const handed = ledger.checks.filter((check) => check.source.kind === 'item' && check.source.item === item.id && check.source.pass === judged?.pass).map((check) => check.id);
+    const state = !judged ? 'never judged'
+      : judged.result === 'fixed' ? `certified at ${shortSha(passSha(ledger, judged.pass))} by pass ${judged.pass}`
+      : judged.result === 'notFixed' ? `❌ still failing at ${shortSha(passSha(ledger, judged.pass))}`
+      : `🕵️ left to the person by certifier pass ${judged.pass} as ${handed.join(' and ') || 'a check'}, which they ticked`;
     return `- **${item.id}** ${label}: ${state}`;
   };
   const headline = input.approved
@@ -397,8 +394,11 @@ export const renderCloseOutBody = (view: LoopView, input: CloseOutInput): string
     '',
     '## Cost and time',
     '',
-    ...costLines(ledger),
-    `- **From filing to close-out:** ${plural(input.days, 'day', 'days')}`,
+    ...costTable(costRows(ledger), ledger, true),
+    '',
+    COST_NOTE,
+    '',
+    `**From filing to close-out:** ${plural(input.days, 'day', 'days')}.`,
     '',
     `This closes #${input.agentNumber}`,
     `This closes #${input.personNumber}`,

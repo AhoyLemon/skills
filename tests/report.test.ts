@@ -85,6 +85,15 @@ test('each verdict owes what the spec says it owes', () => {
   const check = (entry(noHow, '1.3.1')['checks'] as Record<string, unknown>[])[0] ?? {};
   delete check['how'];
   assert.match(errorsFor(noHow).join('\n'), /checks\[0\]\.how: required/);
+
+  for (const group of ['/settle.html\n/order.html', 'x'.repeat(61), '   ']) {
+    const badGroup = report();
+    ((entry(badGroup, '1.3.1')['checks'] as Record<string, unknown>[])[0] ?? {})['group'] = group;
+    assert.match(errorsFor(badGroup).join('\n'), /checks\[0\]\.group: when given, one line/);
+  }
+  const grouped = report();
+  ((entry(grouped, '1.3.1')['checks'] as Record<string, unknown>[])[0] ?? {})['group'] = '  /settle.html ';
+  assert.deepEqual(errorsFor(grouped), [], 'a group is optional, and a short one-line label is fine');
 });
 
 test('a report that never loaded a page is refused', () => {

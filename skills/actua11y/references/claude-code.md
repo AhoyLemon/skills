@@ -2,6 +2,10 @@
 
 How the Claude Code backend (`_backends/_claude-code.ts`) starts a fresh, isolated session, why each piece is there, and what it still can't promise. Every mechanism here worked in practice, but re-check the flags against Claude Code's own docs whenever you change them. The backend records the version they were last verified against (`VERIFIED_VERSION`, currently 2.1.319), and the preflight warns on anything older.
 
+## Intake
+
+Ask intake with the question tool (AskUserQuestion), and give the model and the loop's budget a question each, so neither gets waved through inside a "keep the defaults?". For the model, offer `claude-opus-5-5` (the default, recommended) and `claude-sonnet-5-5` (cheaper, and likelier to miss things). For the budget, offer $60 (recommended), $30 and $100. The user can always type something else.
+
 ## How a session starts
 
 `claude -p` (headless), with the brief on stdin, never in argv, and output as `stream-json` (which needs `--verbose`). Then, layer by layer:

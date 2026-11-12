@@ -23,6 +23,22 @@ export const foundVerbatim = (words: string, sources: string[]): boolean => {
   return sources.some((source) => pattern.test(squash(source)));
 };
 
+const idList = (ids: string[]): string => (ids.length <= 8 ? ids.join(', ') : `${ids.slice(0, 8).join(', ')} and ${ids.length - 8} more`);
+
+// What the person has left, short enough for the session to relay as it stands: where to go, what to tick, what to decide, and what goes where.
+export const yourTurn = (ledger: Ledger, ticked: ReadonlySet<string>): string[] => {
+  if (ledger.stage !== 'human') return [];
+  const { unticked, undecided } = waitingOnPerson(ledger, ticked);
+  if (unticked.length === 0 && undecided.length === 0) return [];
+  return [
+    `Your turn, on ${ledger.personUrl ?? "the person's issue"}:`,
+    ...(unticked.length > 0 ? [`  - ${unticked.length} ${unticked.length === 1 ? 'check' : 'checks'} to try (${idList(unticked)}). Tick each one that holds up.`] : []),
+    ...(undecided.length > 0 ? [`  - ${undecided.length} proven ${undecided.length === 1 ? 'fail' : 'fails'} to decide (${idList(undecided)}): fix it, accept it as it is, or not applicable, and why.`] : []),
+    "  - For anything that doesn't hold up, or anything else you find, comment on that issue in your own words, with how you want it solved. Only words on the issue go on the record.",
+    '  - Then say so in chat, and the session records it.',
+  ];
+};
+
 export interface CloseOutCheck {
   refusals: string[];
   latest: Round | null;

@@ -5,11 +5,12 @@ import { emptyUsage } from '../skills/actua11y/_lib/_backend.ts';
 import { CERTIFIER_SCHEMA, passVerdict, type CertifierReport } from '../skills/actua11y/_lib/_certifier.ts';
 import { criteriaAt } from '../skills/actua11y/_lib/_criteria.ts';
 import type { GhIssue } from '../skills/actua11y/_lib/_gh.ts';
-import { closeOutCheck, foundVerbatim, personSources } from '../skills/actua11y/_lib/_human.ts';
+import { closeOutCheck, foundVerbatim, personSources, yourTurn } from '../skills/actua11y/_lib/_human.ts';
 import { nextStep } from '../skills/actua11y/_lib/_cmd-loop.ts';
 import { addHuman, applyPass, decide, humanPassesSinceApproval, initialLedger, startLoop, stopAi, type Ledger } from '../skills/actua11y/_lib/_ledger.ts';
 import { validateReport } from '../skills/actua11y/_lib/_report.ts';
-import { makeFacts, makeReport, makeSite } from './_fixtures.ts';
+import { renderCloseOutBody } from '../skills/actua11y/_lib/_render-loop.ts';
+import { makeFacts, makeReport, makeSite, viewOf } from './_fixtures.ts';
 
 test("only the person's own region and their unmarked comments count as their words", () => {
   const person: GhIssue = {
@@ -94,6 +95,31 @@ test("a pass that approved never uses up the human round's cap, and at a real ca
   const atCap = closeOutCheck(settled, new Set(['P1', 'P2']), true);
   assert.deepEqual(atCap.refusals, []);
   assert.deepEqual(atCap.neverJudged, ['H2'], 'listed plainly, not a dead end');
+});
+
+test("close-out shows a fix the certifier left to the person as their check, never as still failing", () => {
+  const result = validateReport(makeReport('A'), { criteria: criteriaAt('A'), repoRoot: makeSite(), tracked: new Set(['index.html', 'css/site.css']) });
+  if (!result.ok) throw new Error(result.errors.join('\n'));
+  const asked = addHuman(approvedLedger(), { words: 'The steppers feel too small', tag: { kind: 'ux' }, decision: { choice: 'fix', reason: null, how: null } }).ledger;
+  const report: CertifierReport = { schema: CERTIFIER_SCHEMA, used: { tools: ['Read'], pages: ['/'] }, items: [...['A1', 'A2'].map((id) => ({ id, fixed: [{ did: 'd', saw: 's' }] })), { id: 'H1', needsPerson: { what: 'Whether 40px feels big enough', how: 'Use them', whyNotAMachine: 'A feeling' } }], reran: [], rewalk: { criteria: [], newFails: [], newChecks: [] } };
+  const ledger = applyPass(asked, report, passVerdict(report, new Set(['A1', 'A2'])), { pass: 2, sha: '2'.repeat(40), at: 'now', runId: 'r2', model: 'm', effort: 'high', browser: null, usage: emptyUsage(), dryRun: null, commentUrls: [] }).ledger;
+  const check = ledger.checks.at(-1)?.id ?? '';
+  const body = renderCloseOutBody({ ...viewOf(result.report), ledger }, { agentNumber: 1, personNumber: 2, prNumber: 3, sha: '2'.repeat(40), pass: 2, approved: true, uncertified: [], stillFailing: [], neverJudged: [], ticked: new Set(['P1', 'P2', check]), days: 1, headSha: '2'.repeat(40) });
+  const line = body.split('\n').find((text) => text.includes('**H1**')) ?? '';
+  assert.doesNotMatch(line, /still failing/, 'no pass found it failing');
+  assert.match(line, new RegExp(`left to the person by certifier pass 2 as ${check}, which they ticked`));
+});
+
+test("the person's turn is a few lines: their issue, what's left to tick or decide, and that their words go on the issue, not in chat", () => {
+  const ledger = { ...approvedLedger(), personUrl: 'https://github.com/AhoyLemon/skills/issues/2' };
+  const turn = yourTurn(ledger, new Set(['P1']));
+  assert.ok(turn.length <= 5, 'short enough to relay as it stands');
+  assert.equal(turn[0], 'Your turn, on https://github.com/AhoyLemon/skills/issues/2:');
+  assert.match(turn.join('\n'), /1 check to try \(P2\)\. Tick each one that holds up\./);
+  assert.match(turn.join('\n'), /comment on that issue in your own words[^\n]*Only words on the issue go on the record/);
+  assert.match(turn.join('\n'), /Then say so in chat/);
+  assert.deepEqual(yourTurn(ledger, new Set(['P1', 'P2'])), [], 'nothing left, so nothing to relay');
+  assert.deepEqual(yourTurn({ ...ledger, stage: 'ai' }, new Set()), [], 'never during the AI rounds');
 });
 
 test('their words count only whole, so "fine" never matches inside "define"', () => {

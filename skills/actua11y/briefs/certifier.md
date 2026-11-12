@@ -30,7 +30,7 @@ Give each item exactly one of these:
 
 - **`fixed`** (✅): you did the thing that showed the fail, in the running page, and it no longer fails. The evidence says what you did and what you saw. For keyboard, focus or input behaviour, finding nothing in the source isn't enough: do it.
 - **`notFixed`** (❌): it still fails, or fails in a new way. Give the file and line where it lives, what's wrong, and the exact steps that show it. The next pass runs your steps word for word, so write them so anyone following them sees the same thing.
-- **`needsPerson`** (🕵️): only a person can settle it, with a screen reader, say, or a judgement about meaning. It moves to the person's issue.
+- **`needsPerson`** (🕵️): only a person can settle it, with a screen reader, say, or a judgement about meaning. It moves to the person's issue. Give it a `group`, a short label for where or how the person will test it, reusing one of the labels below when one fits.
 
 {{ITEMS}}
 
@@ -42,7 +42,7 @@ Run each one exactly as written: the same keys, the same number of presses, in t
 
 ## 3. Re-walk the whole target
 
-Then walk the whole site again at this commit, every criterion in the table, for anything a change broke or anyone missed. For each criterion, say in a line what you did on this pass. Report fails that aren't already on the list above as `newFails` (with the file, line, who it hurts, and repro steps for behaviour), and anything a machine can't settle that isn't already with a person as `newChecks`. Three passes once gave three different lists, and each found real fails the others missed, so be thorough.
+Then walk the whole site again at this commit, every criterion in the table, for anything a change broke or anyone missed. For each criterion, say in a line what you did on this pass. Report fails that aren't already on the list above as `newFails` (with the file, line, who it hurts, and repro steps for behaviour), and anything a machine can't settle that isn't already with a person as `newChecks`, each with a `group` as above. Three passes once gave three different lists, and each found real fails the others missed, so be thorough.
 
 ## Known, and out of scope
 

@@ -3,7 +3,7 @@ import { join } from 'node:path';
 
 import { bold, heading, hintLine, okLine, out } from './_ansi.ts';
 import type { Options } from './_args.ts';
-import { openLoop, nextStep } from './_cmd-loop.ts';
+import { openLoop, printNext } from './_cmd-loop.ts';
 import { banner } from './_copy.ts';
 import { criterionByNum } from './_criteria.ts';
 import { onExit } from './_exec.ts';
@@ -58,7 +58,8 @@ export const cmdRecordFinding = (options: Options, client: LoopGh): number => {
   saveLoop(client, state, { ledger: next, passes: state.view.passes });
   const where = tag.kind === 'ux' ? 'UX, outside WCAG' : `WCAG ${tag.num}, ${insideTarget(tag.num, ledger.facts.level) ? 'inside' : 'outside'} the target`;
   okLine(`recorded ${id} (${where}) on the person's issue, in their words${check ? `, settling check ${check}` : ''}`);
-  out(nextStep(next, state.kept?.ticked ?? new Set(), agentUrl).says);
+  if (tag.kind === 'ux' || !insideTarget(tag.num, ledger.facts.level)) out(`Tell the person, in a line: happy to ${next.human.at(-1)?.decision.choice === 'fix' ? 'fix it' : 'note it'}, but it isn't ${tag.kind === 'ux' ? 'a WCAG fix' : `inside the ${ledger.facts.level} target`}, so it doesn't count toward the audit and never holds up close-out.`);
+  printNext(next, state.kept?.ticked ?? new Set(), agentUrl);
   return 0;
 };
 
@@ -70,7 +71,7 @@ export const cmdRecordDecision = (options: Options, client: LoopGh): number => {
   const next = decide(ledger, options.item.toUpperCase(), decisionFrom(options, personSources(state.person)));
   saveLoop(client, state, { ledger: next, passes: state.view.passes });
   okLine(`recorded the person's decision on ${options.item.toUpperCase()}`);
-  out(nextStep(next, state.kept?.ticked ?? new Set(), agentUrl).says);
+  printNext(next, state.kept?.ticked ?? new Set(), agentUrl);
   return 0;
 };
 
