@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 (unreleased)
+## 1.0.0 (2026-11-12)
 
 The fix-and-certify loop, after the assess-only slice. Assess-only stays an option at intake.
 
