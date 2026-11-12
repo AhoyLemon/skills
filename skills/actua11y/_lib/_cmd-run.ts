@@ -2,25 +2,25 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { bold, dim, failLine, heading, hintLine, okLine, out, warnLine } from './_ansi.ts';
+import { bold, dim, failLine, heading, hintLine, okLine, out } from './_ansi.ts';
 import type { Options } from './_args.ts';
-import { addUsage, type Backend, type RoleSpec, type SessionResult, type Usage } from './_backend.ts';
+import type { Backend, RoleSpec } from './_backend.ts';
 import { fillTemplate, readBrief } from './_brief.ts';
 import { banner } from './_copy.ts';
 import { axeTagsFor, criteriaAt, levelLabel, type Level } from './_criteria.ts';
 import { repoSlugFor } from './_cmd-checks.ts';
-import { currentBranch, headCommit, ignoredIn, trackedFiles, treeChanges, treeState } from './_git.ts';
+import { currentBranch, headCommit, ignoredIn, trackedFiles, treeState } from './_git.ts';
 import { printChecks, runPreflight } from './_preflight.ts';
 import { formatUsage, plural } from './_render.ts';
-import { extractReportJson, REPORT_SHAPE, tallyOf, validateReport, type ValidationContext, type ValidationResult } from './_report.ts';
-import { ALL_DENIES, computeOffLimits, offLimitsMentions, rulesInWords } from './_rules.ts';
-import { latestDryRun, newRunId, reportHash, runDir, stateRoot, writeJson, type DryRunRecord, type RunMeta } from './_runs.ts';
+import { REPORT_SHAPE, tallyOf, validateReport, type ValidationContext } from './_report.ts';
+import { rulesInWords } from './_rules.ts';
+import { latestDryRun, newRunId, reportHash, runDir, writeJson, type DryRunRecord, type RunMeta } from './_runs.ts';
 import { onExit } from './_exec.ts';
 import { installKit, makeScratch, probeBrowser, removeDir } from './_scratch.ts';
 import { serveStatic, type StaticServer } from './_serve.ts';
+import { aftermath, auditSpec, nextLine, printAftermath, runRole, strayLines } from './_session.ts';
 
 const DRY_RUN_MAX_AGE_MS = 6 * 60 * 60 * 1000;
-const MAX_ATTEMPTS = 3;
 
 interface BriefInput {
   level: Level;
@@ -63,37 +63,20 @@ interface DryRunWanted {
   effort: string;
 }
 
-// A finder only starts after a clean dry run with the same backend, model and effort, recent enough that nothing about the setup has had time to change.
+// A role only starts after a clean dry run with the same backend, model and effort, recent enough that nothing about the setup has had time to change.
 export const dryRunIsFresh = (dry: DryRunRecord | null, wanted: DryRunWanted, now: number): boolean =>
   dry !== null && dry.clean && dry.backend === wanted.backend && dry.model === wanted.model && dry.effort === wanted.effort && now - Date.parse(dry.at) < DRY_RUN_MAX_AGE_MS;
 
-// Without a result event a session reports no cost or turns, so its spend is unknown and a retry would be handed a budget that may already be gone.
-const reportedUsage = (session: SessionResult): boolean => session.usage.turns > 0;
-
-const requireLevel = (options: Options): Level => {
+export const requireLevel = (options: Options): Level => {
   if (!options.level) throw new Error('Pass --level A, AA or AAA. Ask the user if the project names no standard.');
   return options.level;
 };
 
-const finderSpec = (options: Options, root: string, scratch: string | null, transcriptPath: string, ignored: string[], agentPaths: string[]): RoleSpec => ({
-  role: 'finder',
-  brief: '',
-  cwd: root,
-  scratch,
-  readOnly: true,
-  noTools: false,
-  deny: ALL_DENIES,
-  offLimits: computeOffLimits({ repoRoot: root, runsRoot: stateRoot(), scratch, ignoredInRepo: ignored, agentPaths }),
-  model: options.model,
-  effort: options.effort,
-  maxTurns: options.maxTurns,
-  maxBudgetUsd: options.maxBudgetUsd,
-  timeoutMs: options.timeoutMinutes * 60_000,
-  transcriptPath,
-});
+export const finderSpec = (options: Options, root: string, scratch: string | null, transcriptPath: string, ignored: string[], agentPaths: string[]): RoleSpec =>
+  auditSpec({ role: 'finder', root, scratch, transcriptPath, ignored, agentPaths, model: options.model, effort: options.effort, maxTurns: options.maxTurns, maxBudgetUsd: options.maxBudgetUsd, timeoutMs: options.timeoutMinutes * 60_000 });
 
 export const cmdBrief = (options: Options, backend: Backend): number => {
-  if (options.subject !== 'finder') throw new Error('Only `brief finder` exists in this version');
+  if (options.subject !== 'finder') throw new Error('Pass `brief finder`, `brief fixer --issue <n>` or `brief certifier --issue <n>`');
   const level = requireLevel(options);
   const root = options.cwd;
   const scratch = '<a fresh scratch folder per run>';
@@ -103,31 +86,52 @@ export const cmdBrief = (options: Options, backend: Backend): number => {
   return 0;
 };
 
-const fixMessage = (errors: string[]): string =>
-  [
-    "The runner can't accept your report yet. Fix every problem below, then send the complete corrected report as one ```json block (the whole report, not just the changes), with nothing after it.",
-    '',
-    ...errors.slice(0, 80).map((error) => `- ${error}`),
-    errors.length > 80 ? `- ...and ${errors.length - 80} more like these` : '',
-  ].join('\n');
+// Refuses to start without a clean, recent dry run for this backend, model and effort.
+export const requireDryRun = (repo: { owner: string; name: string }, options: Options, backend: Backend): DryRunRecord | null => {
+  const dry = latestDryRun(repo);
+  if (dryRunIsFresh(dry, { backend: backend.name, model: options.model, effort: options.effort }, Date.now())) return dry;
+  failLine(`No clean dry run for ${repo.owner}/${repo.name} with ${options.model} at effort ${options.effort} in the last six hours.`);
+  hintLine('Run `node runner.ts dry-run` first, with the same --model and --effort, and read what the session says it loaded.');
+  return null;
+};
 
-interface Attempt {
-  validation: ValidationResult;
-  raw: unknown;
+export interface Prepared {
+  scratch: string;
+  server: StaticServer | null;
+  baseUrl: string;
+  browser: { channel: string; version: string; axeVersion: string };
+  cleanup: () => Promise<void>;
 }
 
-// The last result holding a valid report wins. If none is valid, the last JSON object is the one whose problems go back to the session.
-const reportFrom = (session: SessionResult, context: ValidationContext): Attempt => {
-  const candidates = [...session.finalTexts].reverse().map(extractReportJson).filter((parsed) => typeof parsed === 'object' && parsed !== null);
-  for (const raw of candidates) {
-    const validation = validateReport(raw, context);
-    if (validation.ok) return { validation, raw };
+// A fresh scratch folder with the browser kit, and the static server when the site is a folder. The caller always runs cleanup.
+export const prepareRun = async (runId: string, root: string, site: { url: string | null; serve: string | null }): Promise<Prepared> => {
+  const scratch = makeScratch(runId);
+  const cleanScratch = onExit(() => removeDir(scratch));
+  let server: StaticServer | null = null;
+  const cleanup = async (): Promise<void> => {
+    await server?.close();
+    cleanScratch();
+  };
+  try {
+    heading('Preparing');
+    const kit = installKit(scratch);
+    if (!kit.ok) throw new Error(`Couldn't install the browser kit: ${kit.detail}`);
+    const probe = probeBrowser(scratch);
+    if (!probe.ok) throw new Error(`No browser to drive: ${probe.detail}`);
+    okLine(`browser kit installed in a fresh scratch folder, driving ${probe.channel} ${probe.version}`);
+    if (site.serve) {
+      server = await serveStatic(join(root, site.serve));
+      okLine(`serving ${site.serve} at ${server.url} for this run`);
+    }
+    return { scratch, server, baseUrl: server?.url ?? site.url ?? '', browser: { channel: probe.channel, version: probe.version, axeVersion: probe.axeVersion }, cleanup };
+  } catch (error) {
+    await cleanup();
+    throw error;
   }
-  return { validation: validateReport(candidates[0], context), raw: candidates[0] };
 };
 
 export const cmdRunFinder = async (options: Options, backend: Backend): Promise<number> => {
-  if (options.subject !== 'finder') throw new Error('Only `run finder` exists in this version');
+  if (options.subject !== 'finder') throw new Error('Pass `run finder`, or `run certifier --issue <n>`');
   const level = requireLevel(options);
   banner(level);
   if (!options.url && !options.serve) throw new Error('Pass --url <the running site> or --serve <folder> for a static site');
@@ -140,34 +144,16 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
   }
   const root = pre.root;
   const repo = repoSlugFor(root);
-
-  const dry = latestDryRun(repo);
-  if (!dryRunIsFresh(dry, { backend: backend.name, model: options.model, effort: options.effort }, Date.now())) {
-    failLine(`No clean dry run for ${repo.owner}/${repo.name} with ${options.model} at effort ${options.effort} in the last six hours.`);
-    hintLine('Run `node runner.ts dry-run` first, and read what the session says it loaded.');
-    return 1;
-  }
+  const dry = requireDryRun(repo, options, backend);
+  if (!dry) return 1;
 
   const runId = newRunId();
   const dir = runDir(repo, runId);
   mkdirSync(dir, { recursive: true });
-  const scratch = makeScratch(runId);
-  const cleanScratch = onExit(() => removeDir(scratch));
-  let server: StaticServer | null = null;
+  const prepared = await prepareRun(runId, root, { url: options.url, serve: options.serve });
 
   try {
-    heading('Preparing');
-    const kit = installKit(scratch);
-    if (!kit.ok) throw new Error(`Couldn't install the browser kit: ${kit.detail}`);
-    const probe = probeBrowser(scratch);
-    if (!probe.ok) throw new Error(`No browser to drive: ${probe.detail}`);
-    okLine(`browser kit installed in a fresh scratch folder, driving ${probe.channel} ${probe.version}`);
-
-    if (options.serve) {
-      server = await serveStatic(join(root, options.serve));
-      okLine(`serving ${options.serve} at ${server.url} for this run`);
-    }
-    const baseUrl = server?.url ?? options.url ?? '';
+    const { scratch, server, baseUrl, browser } = prepared;
     const pages = options.pages;
     okLine(pages.length > 0 ? `pages: ${pages.join(', ')}` : 'pages: not named, so the finder finds them');
     const tags = axeTagsFor(level);
@@ -175,12 +161,12 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
     const before = treeState(root);
     const ignored = ignoredIn(root, ['.']);
     const spec = finderSpec(options, root, scratch, join(dir, 'transcript.jsonl'), ignored, backend.offLimits(root));
-    const browser = `${probe.channel} ${probe.version} (headless)`;
-    spec.brief = finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl, pages, scratch, browser, channel: probe.channel, spec });
+    spec.brief = finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl, pages, scratch, browser: `${browser.channel} ${browser.version} (headless)`, channel: browser.channel, spec });
     writeFileSync(join(dir, 'brief.md'), spec.brief);
 
     const meta: RunMeta = {
       runId,
+      role: 'finder',
       createdAt: new Date().toISOString(),
       finishedAt: null,
       repoRoot: root,
@@ -190,99 +176,47 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
       level,
       scope: options.scope,
       baseUrl: options.serve ? `served from \`${options.serve}\`` : baseUrl,
+      site: { url: options.url, serve: options.serve },
       pages,
-      browser: { channel: probe.channel, version: probe.version },
-      axe: { version: probe.axeVersion, tags },
+      served: null,
+      browser: { channel: browser.channel, version: browser.version },
+      axe: { version: browser.axeVersion, tags },
       backend: backend.name,
       model: options.model,
       effort: options.effort,
       maxTurns: options.maxTurns,
       maxBudgetUsd: options.maxBudgetUsd,
       dryRun: dry,
-      finder: null,
+      session: null,
+      pass: null,
     };
     writeJson(join(dir, 'meta.json'), meta);
 
     heading('The finder');
     out(dim(`A fresh, read-only ${backend.name} session (${options.model}, effort ${options.effort}), capped at ${options.maxTurns} turns, $${options.maxBudgetUsd} and ${options.timeoutMinutes} minutes. This usually takes a while.`));
     const context: ValidationContext = { criteria: criteriaAt(level), repoRoot: root, tracked: trackedFiles(root) };
-    const startedAt = Date.now();
-    let session = await backend.start(spec);
-    let usage: Usage = session.usage;
-    let attempts = 1;
-    let denials = session.permissionDenials;
-    let unreported = !reportedUsage(session);
-    const errors = [...session.errors];
-    const toolInputs = [...session.toolInputs];
-    let attempt = reportFrom(session, context);
-    const stoppedAtStart = session.errors.some((error) => error.startsWith('stopped at start'));
-    // Retries share the caps the user agreed to. Each one gets only what's left, and none starts without a useful amount left.
-    const left = (): { usd: number; turns: number; ms: number } => ({ usd: options.maxBudgetUsd - usage.costUsd, turns: options.maxTurns - usage.turns, ms: options.timeoutMinutes * 60_000 - (Date.now() - startedAt) });
-    while (!attempt.validation.ok && !stoppedAtStart && session.sessionId && reportedUsage(session) && attempts < MAX_ATTEMPTS) {
-      const remaining = left();
-      if (remaining.usd < 0.5 || remaining.turns < 5 || remaining.ms < 2 * 60_000) {
-        warnLine('the report has problems, but too little of the budget, turns or time is left to send them back');
-        break;
-      }
-      warnLine(`the report has ${attempt.validation.ok ? 0 : attempt.validation.errors.length} problem(s), so the runner is sending them back (attempt ${attempts + 1} of ${MAX_ATTEMPTS})`);
-      const retry = { ...spec, maxBudgetUsd: Number(remaining.usd.toFixed(2)), maxTurns: Math.floor(remaining.turns), timeoutMs: remaining.ms };
-      session = await backend.resume(retry, session.sessionId, fixMessage(attempt.validation.ok ? [] : attempt.validation.errors));
-      usage = addUsage(usage, session.usage);
-      denials += session.permissionDenials;
-      unreported ||= !reportedUsage(session);
-      errors.push(...session.errors);
-      toolInputs.push(...session.toolInputs);
-      attempts += 1;
-      attempt = reportFrom(session, context);
-    }
-    // A session stopped at its first event, or one that never said what it loaded, isn't trusted, whatever it reported.
-    const untrusted = errors.filter((error) => error.startsWith('stopped at start'));
-    const validation: ValidationResult = untrusted.length > 0 ? { ok: false, errors: untrusted } : attempt.validation;
-
-    const changes = treeChanges(before, treeState(root), options.allowIgnored);
-    const mentions = offLimitsMentions(toolInputs, spec.offLimits, root);
+    const run = await runRole(backend, spec, (raw) => validateReport(raw, context));
+    const after = aftermath(run, spec, root, before, options.allowIgnored);
     meta.finishedAt = new Date().toISOString();
-    meta.finder = { sessionId: session.sessionId, attempts, usage, transcriptPath: spec.transcriptPath, errors, permissionDenials: denials, offLimitsMentions: mentions, strays: changes.tree, ignoredStrays: changes.ignored, valid: validation.ok, reportSha256: null };
+    meta.served = server ? server.served() : null;
+    meta.session = after.record;
     writeJson(join(dir, 'meta.json'), meta);
-    const strays = [...changes.tree, ...changes.ignored.map((path) => `new or gone gitignored path: ${path}`)];
+    if (!printAftermath(run, after, spec, dir) || !run.checked.ok) return 1;
 
-    heading('Result');
-    for (const error of errors) warnLine(error);
-    if (unreported) warnLine('a session ended without reporting its cost, so the cost below is too low');
-    if (denials > 0) warnLine(`the finder tried ${plural(denials, 'thing', 'things')} its rules deny. The transcript shows what: ${spec.transcriptPath}`);
-    if (mentions.length > 0) {
-      failLine('Tool calls named paths the finder must never read. A shell can read past the rules, so show the user these and the transcript before filing:');
-      for (const mention of mentions) hintLine(`${mention.path} (${plural(mention.count, 'tool call', 'tool calls')})`);
-    }
-    if (changes.tree.length > 0) {
-      failLine('The finder changed tracked or untracked files in the repository, which it must never do:');
-      for (const stray of changes.tree) hintLine(stray);
-    }
-    if (changes.ignored.length > 0) {
-      failLine('Gitignored paths appeared or vanished while the finder ran:');
-      for (const path of changes.ignored) hintLine(path);
-      hintLine('If one came from your own dev server (a cache folder, say), file with --allow-ignored for it, and pass it at intake next time.');
-    }
-    if (!validation.ok) {
-      writeJson(join(dir, 'report-invalid.json'), { errors: validation.errors, raw: attempt.raw ?? session.finalTexts.at(-1) ?? null });
-      failLine(`No usable report after ${attempts} attempt(s). Its problems are saved in ${join(dir, 'report-invalid.json')}.`);
-      out(`Cost: ${formatUsage(usage)}`);
-      return 1;
-    }
-    writeJson(join(dir, 'report.json'), validation.report);
+    const report = run.checked.report;
+    writeJson(join(dir, 'report.json'), report);
     // `file` refuses a report that changed after this, so what reaches GitHub is what the finder reported and the runner checked.
-    meta.finder.reportSha256 = reportHash(readFileSync(join(dir, 'report.json'), 'utf8'));
+    meta.session.reportSha256 = reportHash(readFileSync(join(dir, 'report.json'), 'utf8'));
     writeJson(join(dir, 'meta.json'), meta);
-    const tally = tallyOf(validation.report);
-    okLine(`a verdict for all ${validation.report.criteria.length} criteria: ❌ ${tally.fail}, 🕵️ ${tally.check}, ✅ ${tally['found-no-fail']}, n/a ${tally.na}`);
+    const tally = tallyOf(report);
+    const strays = strayLines(after);
+    okLine(`a verdict for all ${report.criteria.length} criteria: ❌ ${tally.fail}, 🕵️ ${tally.check}, ✅ ${tally['found-no-fail']}, n/a ${tally.na}`);
     out(`  ${plural(tally.failItems, 'fail', 'fails')} for agents, ${plural(tally.checkItems, 'check', 'checks')} for a person`);
-    out(`  Cost: ${formatUsage(usage)}${attempts > 1 ? ` over ${attempts} attempts` : ''}`);
+    out(`  Cost: ${formatUsage(run.usage)}${run.attempts > 1 ? ` over ${run.attempts} attempts` : ''}`);
     out(`  Run: ${runId}  (local record in ${dir})`);
-    out();
-    out(strays.length > 0 ? bold('Stop and show the user the changes above before filing anything.') : bold(`Next: node runner.ts file --run ${runId}`));
+    nextLine(strays, runId);
     return strays.length > 0 ? 1 : 0;
   } finally {
-    await server?.close();
-    cleanScratch();
+    await prepared.cleanup();
   }
 };

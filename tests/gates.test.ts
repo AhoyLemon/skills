@@ -36,8 +36,9 @@ test('a finder starts only after a clean dry run with the same backend, model an
 
 const REPORT = '{"schema": "actua11y.finder/1"}\n';
 
-const meta = (finder: Partial<NonNullable<RunMeta['finder']>> = {}): RunMeta => ({
+const meta = (session: Partial<NonNullable<RunMeta['session']>> = {}, role: RunMeta['role'] = 'finder'): RunMeta => ({
   runId: '20261110-120000-abcd',
+  role,
   createdAt: '2026-11-10T11:00:00Z',
   finishedAt: '2026-11-10T11:30:00Z',
   repoRoot: '/work/moth-club',
@@ -47,7 +48,9 @@ const meta = (finder: Partial<NonNullable<RunMeta['finder']>> = {}): RunMeta => 
   level: 'A',
   scope: ['.'],
   baseUrl: 'http://127.0.0.1:4173/',
+  site: { url: 'http://127.0.0.1:4173/', serve: null },
   pages: [],
+  served: null,
   browser: null,
   axe: null,
   backend: 'Claude Code',
@@ -56,7 +59,8 @@ const meta = (finder: Partial<NonNullable<RunMeta['finder']>> = {}): RunMeta => 
   maxTurns: 300,
   maxBudgetUsd: 20,
   dryRun: null,
-  finder: { sessionId: 's', attempts: 1, usage: emptyUsage(), transcriptPath: '/tmp/t.jsonl', errors: [], permissionDenials: 0, offLimitsMentions: [], strays: [], ignoredStrays: [], valid: true, reportSha256: reportHash(REPORT), ...finder },
+  session: { sessionId: 's', attempts: 1, usage: emptyUsage(), transcriptPath: '/tmp/t.jsonl', errors: [], permissionDenials: 0, offLimitsMentions: [], strays: [], ignoredStrays: [], valid: true, reportSha256: reportHash(REPORT), ...session },
+  pass: null,
 });
 
 test('filing refuses an invalid run, an edited report, a run that wrote to the app, and unexplained gitignored paths', () => {
@@ -69,4 +73,11 @@ test('filing refuses an invalid run, an edited report, a run that wrote to the a
   assert.match(fileRefusal(meta({ ignoredStrays: ['.cache/'] }), REPORT, []) ?? '', /\.cache\//);
   assert.equal(fileRefusal(meta({ ignoredStrays: ['.cache/'] }), REPORT, ['.cache']), null, 'acknowledged with --allow-ignored');
   assert.match(fileRefusal(meta({ errors: ['stopped at start: MCP servers loaded: slack'] }), REPORT, []) ?? '', /stopped at its first event/, 'a session that loaded something it shouldn\'t, whatever it reported');
+});
+
+test('a certifier run meets the same refusals, in its own name', () => {
+  assert.equal(fileRefusal(meta({}, 'certifier'), REPORT, []), null);
+  assert.match(fileRefusal(meta({}, 'certifier'), REPORT.replace('finder', 'fixer'), []) ?? '', /changed after the certifier ran/);
+  assert.match(fileRefusal(meta({ strays: [' M index.html'] }, 'certifier'), REPORT, []) ?? '', /changed tracked or untracked files/);
+  assert.match(fileRefusal(meta({ errors: ['stopped at start: skills loaded: x'] }, 'certifier'), REPORT, []) ?? '', /run the dry run and the certifier again/);
 });

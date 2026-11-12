@@ -114,3 +114,28 @@ export const originSlug = (root: string): RepoSlug | null => {
 };
 
 export const slugText = (slug: RepoSlug): string => `${slug.owner}/${slug.name}`;
+
+// ---- The few writes the loop makes, all on the loop's own branch. Only the orchestrator's runner makes them, never a role. ----
+
+export const branchExists = (root: string, branch: string): boolean => exec('git', ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`], { cwd: root }).code === 0;
+
+export const createBranch = (root: string, branch: string, at: string): void => {
+  git(root, ['switch', '--quiet', '-c', branch, at]);
+};
+
+export const switchBranch = (root: string, branch: string): void => {
+  git(root, ['switch', '--quiet', branch]);
+};
+
+export const pushBranch = (root: string, branch: string): void => {
+  git(root, ['push', '--quiet', '-u', 'origin', branch]);
+};
+
+export const isAncestor = (root: string, ancestor: string, of: string): boolean => exec('git', ['merge-base', '--is-ancestor', ancestor, of], { cwd: root }).code === 0;
+
+// Full shas in base..head, oldest first.
+export const commitsBetween = (root: string, base: string, head: string): string[] => git(root, ['rev-list', '--reverse', `${base}..${head}`]).split('\n').filter((sha) => sha !== '');
+
+export const commitSubject = (root: string, sha: string): string => git(root, ['log', '-1', '--format=%s', sha]);
+
+export const branchSha = (root: string, branch: string): string => git(root, ['rev-parse', `refs/heads/${branch}`]);
