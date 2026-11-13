@@ -37,6 +37,19 @@ const approvedLedger = (): Ledger => {
   return applyPass(ledger, report, passVerdict(report, new Set(['A1', 'A2'])), { pass: 1, sha: 'a'.repeat(40), at: 'now', runId: 'r1', model: 'm', effort: 'high', browser: null, usage: emptyUsage(), dryRun: null, commentUrls: [] }).ledger;
 };
 
+test('Codex next steps preserve the backend for certifiers in both rounds', () => {
+  const base = approvedLedger();
+  const previous = base.rounds[0];
+  assert.ok(previous);
+  const fixer = { ...previous, kind: 'fixer' as const, stage: 'ai' as const };
+  const ai = { ...base, stage: 'ai' as const, facts: { ...base.facts, backend: 'Codex' }, rounds: [fixer] };
+  assert.match(nextStep(ai, new Set(), 'https://github.com/AhoyLemon/skills/issues/1').command ?? '', /run certifier --backend codex --issue 1/);
+  const human = { ...ai, stage: 'human' as const, rounds: [{ ...fixer, stage: 'human' as const }] };
+  assert.match(nextStep(human, new Set(), 'https://github.com/AhoyLemon/skills/issues/1').command ?? '', /run certifier --backend codex --issue 1/);
+  const unjudged = { ...human, rounds: [], items: human.items.map((item) => ({ ...item, status: 'claimed' as const, judged: null })) };
+  assert.match(nextStep(unjudged, new Set(), 'https://github.com/AhoyLemon/skills/issues/1').command ?? '', /run certifier --backend codex --issue 1/);
+});
+
 test('close-out waits for every tick and decision, and for a pass that judged every fix', () => {
   const ledger = approvedLedger();
   assert.deepEqual(closeOutCheck(ledger, new Set(['P1', 'P2']), false).refusals, [], 'approved, ticked, nothing undecided');

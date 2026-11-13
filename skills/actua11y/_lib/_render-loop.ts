@@ -416,6 +416,6 @@ export interface UnfiledInput {
 // A certifier run that can never be filed still spent money. This comment puts that on the record, and loadLoop adds it to what the loop has spent, so the budget can't leak.
 export const renderUnfiledComments = (view: LoopView, input: UnfiledInput): string[] =>
   fitWithRaw(
-    [`<!-- actua11y:unfiled v1 run=${input.runId} -->`, `## actua11y · certifier run \`${input.runId}\` can't be filed`, '', bestFaith(view), '', `${safeText(input.why)} ${input.usage.costUsd === null ? `Usage: ${input.usage.turns === 0 ? `${(input.usage.durationMs / 60_000).toFixed(1)} min · cost not measured · tokens unreported` : formatUsage(input.usage)}; the dollar budget cannot limit this run.` : `It cost ${formatUsage(input.usage)}, which counts against the loop's budget.`} Its transcript is \`${input.transcriptPath}\`, kept on the machine that ran it.`, ''].join('\n'),
+    [`<!-- actua11y:unfiled v1 run=${input.runId} -->`, `## actua11y · certifier run \`${input.runId}\` can't be filed`, '', bestFaith(view), '', `${safeText(input.why)} ${input.usage.costUsd === null ? `Usage: ${formatUsage(input.usage)}; the dollar budget cannot limit this run.` : `It cost ${formatUsage(input.usage)}, which counts against the loop's budget.`} Its transcript is \`${input.transcriptPath}\`, kept on the machine that ran it.`, ''].join('\n'),
     rawBlocks('unfiled', { run: input.runId }, 'What this run cost', { runId: input.runId, usd: input.usage.costUsd }),
   );

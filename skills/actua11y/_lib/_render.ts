@@ -74,8 +74,8 @@ export const criterionHeading = (num: string): string => {
 export const formatUsage = (usage: Usage): string => {
   const minutes = (usage.durationMs / 60_000).toFixed(1);
   const tokens = totalTokens(usage);
-  const tokenText = tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(2)}M` : `${Math.round(tokens / 1000)}k`;
-  return usage.costUsd === null ? `${minutes} min · cost not measured · ${tokenText} tokens` : `${usage.turns} turns · ${minutes} min · $${usage.costUsd.toFixed(2)} · ${tokenText} tokens`;
+  const tokenText = usage.costUsd === null && usage.turns === 0 && tokens === 0 ? 'tokens unreported' : `${tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(2)}M` : `${Math.round(tokens / 1000)}k`} tokens`;
+  return usage.costUsd === null ? `${minutes} min · cost not measured · ${tokenText}` : `${usage.turns} turns · ${minutes} min · $${usage.costUsd.toFixed(2)} · ${tokenText}`;
 };
 
 export const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
@@ -108,6 +108,7 @@ export const timeText = (iso: string | null, timeZone: string): string => {
 };
 
 const tokenCount = (tokens: number | null): string => (tokens === null ? 'unreported' : tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(2)}M` : `${(tokens / 1000).toFixed(1)}k`);
+const knownTokens = (usage: Usage): number | null => usage.costUsd === null && usage.turns === 0 && totalTokens(usage) === 0 ? null : totalTokens(usage);
 const before = (iso: string, ms: number): string | null => (Number.isNaN(Date.parse(iso)) ? null : new Date(Date.parse(iso) - ms).toISOString());
 const modelText = (model: string | null, effort: string | null): string => (model ? `\`${model}\`${effort ? ` at ${effort}` : ''}` : '—');
 
@@ -126,7 +127,7 @@ export const costRows = (ledger: Ledger): CostRow[] => {
   const left = (): number | null => (budget === null ? null : budget - spent);
   const finder = facts.usage.costUsd === null || facts.dryRunUsage?.costUsd === null ? null : facts.usage.costUsd + (facts.dryRunUsage?.costUsd ?? 0);
   spent += finder ?? 0;
-  const rows: CostRow[] = [{ key: 'finder', run: 'Finder', model: modelText(facts.model, facts.effort), startedAt: before(facts.finishedAt, facts.usage.durationMs), endedAt: facts.finishedAt, tokens: totalTokens(facts.usage), spendUsd: finder, leftUsd: left() }];
+  const rows: CostRow[] = [{ key: 'finder', run: 'Finder', model: modelText(facts.model, facts.effort), startedAt: before(facts.finishedAt, facts.usage.durationMs), endedAt: facts.finishedAt, tokens: knownTokens(facts.usage), spendUsd: finder, leftUsd: left() }];
   for (const round of ledger.rounds) {
     if (round.kind === 'fixer') {
       rows.push(fixerCostRow(round.n, round.at, round.reported, left()));
@@ -134,7 +135,7 @@ export const costRows = (ledger: Ledger): CostRow[] => {
     }
     const spend = round.usage?.costUsd === null ? null : (round.usage?.costUsd ?? 0) + (round.dryRunUsd ?? 0);
     spent += spend ?? 0;
-    rows.push({ key: `certifier-${round.runId ?? round.n}`, run: `Certifier pass ${round.n}`, model: modelText(round.model, round.effort), startedAt: round.usage ? before(round.at, round.usage.durationMs) : null, endedAt: round.at, tokens: round.usage ? totalTokens(round.usage) : null, spendUsd: spend, leftUsd: left() });
+    rows.push({ key: `certifier-${round.runId ?? round.n}`, run: `Certifier pass ${round.n}`, model: modelText(round.model, round.effort), startedAt: round.usage ? before(round.at, round.usage.durationMs) : null, endedAt: round.at, tokens: round.usage ? knownTokens(round.usage) : null, spendUsd: spend, leftUsd: left() });
   }
   const rest = ledger.spentUsd - spent;
   if (rest > 0.005) {
@@ -158,7 +159,8 @@ export const costTable = (rows: CostRow[], ledger: Ledger, withTotal = false): s
     const spend = rows.reduce((sum, row) => sum + (row.spendUsd ?? 0), 0);
     const missingSpend = rows.some((row) => row.spendUsd === null && !row.key.startsWith('fixer-'));
     const totalSpend = missingSpend && spend === 0 ? 'not measured' : `$${spend.toFixed(2)}${missingSpend ? ' measured, plus costs not measured' : ''}`;
-    lines.push(`| **Total** | | ${timeText(starts[0] ?? null, zone)} | ${timeText(ends.at(-1) ?? null, zone)} | ${tokenCount(tokens)}${unreported ? ', with some unreported' : ''} | ${totalSpend}, plus the fixer in your session | ${leftText(budget === null ? null : budget - spend)} |`);
+    const totalTokenText = rows.every((row) => row.tokens === null) ? 'unreported' : `${tokenCount(tokens)}${unreported ? ', with some unreported' : ''}`;
+    lines.push(`| **Total** | | ${timeText(starts[0] ?? null, zone)} | ${timeText(ends.at(-1) ?? null, zone)} | ${totalTokenText} | ${totalSpend}, plus the fixer in your session | ${leftText(budget === null ? null : budget - spend)} |`);
   }
   return lines;
 };

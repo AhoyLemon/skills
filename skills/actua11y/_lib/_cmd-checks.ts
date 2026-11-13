@@ -48,7 +48,9 @@ export const cmdDryRun = async (options: Options, backend: Backend): Promise<num
   out(dim(`Starting a fresh ${backend.name} session ${backend.dryRunNoTools === false ? 'instructed not to use tools' : 'with no tools'}, isolated the same way the finder will be...`));
   const session = await backend.start(spec);
   backend.finish?.(session.sessionId);
-  const problems = session.init ? session.errors : ['The session sent no init event, so there is no way to confirm what it loaded', ...session.errors];
+  const answer = session.finalTexts.at(-1)?.trim() ?? '';
+  const problems = session.init ? [...session.errors] : ['The session sent no init event, so there is no way to confirm what it loaded', ...session.errors];
+  if (!answer && problems.length === 0) problems.push('The session sent no answer, so the dry run cannot be checked');
   heading(backend.dryRunNoTools === false ? 'What prompt inspection found' : 'What the session reports loading');
   if (session.init) {
     const init = session.init;
@@ -62,7 +64,6 @@ export const cmdDryRun = async (options: Options, backend: Backend): Promise<num
   heading('Mechanical check');
   if (problems.length === 0) okLine(backend.dryRunNoTools === false ? 'prompt inspection found no skills or unexpected tool namespaces' : 'nothing loaded beyond what actua11y expects');
   for (const problem of problems) failLine(problem);
-  const answer = session.finalTexts.at(-1)?.trim() ?? '';
   if (answer === '' && problems.length > 0) {
     hintLine('The session stopped before it answered, so there is nothing to compare. Fix the problem above, then run the dry run again.');
   } else {

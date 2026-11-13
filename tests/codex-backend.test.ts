@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { buildInvocation, parseStream } from '../skills/actua11y/_backends/_codex.ts';
+import { buildInvocation, exitProblem, parseStream } from '../skills/actua11y/_backends/_codex.ts';
 import { addUsage, emptyUsage, type RoleSpec } from '../skills/actua11y/_lib/_backend.ts';
+import { formatUsage } from '../skills/actua11y/_lib/_render.ts';
 
 const spec: RoleSpec = {
   role: 'finder', brief: 'PRIVATE BRIEF', cwd: '/work/app', scratch: '/tmp/audit', readOnly: true, noTools: false,
@@ -21,13 +22,26 @@ test('Codex starts with a separate home, isolated configuration and a confined f
   const settings = invocation.args.filter((arg) => arg.includes('='));
   for (const setting of ['project_doc_max_bytes=0', 'skills.bundled.enabled=false', 'features.apps=false', 'features.plugins=false', 'web_search="disabled"', 'approval_policy="never"']) assert.ok(settings.includes(setting), setting);
   const filesystem = settings.find((setting) => setting.startsWith('permissions.actua11y.filesystem=')) ?? '';
-  for (const rule of ['"/"="deny"', '"/work/app"="read"', '"/tmp/audit"="write"', '"/work/app/.git"="deny"', '"/work/app/node_modules"="deny"']) assert.ok(filesystem.includes(rule), rule);
+  for (const rule of ['"/"="deny"', '"/work/app"="read"', '"/tmp/audit"="write"', '"/work/app/.git"="deny"', '"/work/app/node_modules"="deny"', '"/home/person/.ssh"="deny"']) assert.ok(filesystem.includes(rule), rule);
+  const optSettings = buildInvocation({ ...spec, cwd: '/opt/projects/app', offLimits: ['/opt/projects/other/'] }, '/tmp/home', {}).args.join(' ');
+  assert.match(optSettings, /"\/opt\/projects\/other"="deny"/);
   assert.equal(invocation.stdin, spec.brief);
   assert.ok(!invocation.args.includes(spec.brief));
   const resumed = buildInvocation(spec, '/tmp/home', {}, 'session-id', 'FIX THE REPORT');
   assert.ok(resumed.args.includes('resume'));
   assert.ok(resumed.args.includes('session-id'));
   assert.equal(resumed.stdin, 'FIX THE REPORT');
+});
+
+test('a signal-terminated session is a failure even when it produced no other errors', () => {
+  assert.match(exitProblem(null, 'SIGTERM', '') ?? '', /SIGTERM/);
+  assert.match(exitProblem(1, null, 'failure') ?? '', /failure/);
+  assert.equal(exitProblem(0, null, ''), null);
+});
+
+test('unreported Codex token usage is distinguished from measured zero', () => {
+  assert.match(formatUsage({ ...emptyUsage(), costUsd: null }), /tokens unreported/);
+  assert.match(formatUsage({ ...emptyUsage(), costUsd: null, turns: 1 }), /0k tokens/);
 });
 
 test('Codex records tokens and tool inputs without inventing a dollar cost', () => {
@@ -71,6 +85,8 @@ test('unmeasured Codex spend does not consume or display a dollar budget', async
   assert.equal(rows[0]?.leftUsd, null);
   const table = costTable(rows, ledger, true).join('\n');
   assert.match(table, /not measured/);
+  const unknown = { ...ledger, facts: { ...ledger.facts, usage: { ...emptyUsage(), costUsd: null } }, spentUsd: 0 };
+  assert.match(costTable(costRows(unknown), unknown, true).join('\n'), /unreported/);
   assert.doesNotMatch(table, /of \$1\.00/);
   ledger.spentUsd = 0;
   assert.doesNotMatch(costTable(costRows(ledger), ledger, true).join('\n'), /\$0\.00/);

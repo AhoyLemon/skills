@@ -4,6 +4,7 @@
 
 - Added a Codex backend with a runner-owned browser, prompt inspection and token reporting. Codex's dollar spend is not measured, so its runs use a wall-clock cap rather than a dollar budget.
 - An interrupted Codex session that never reports token usage now says tokens are unreported instead of displaying zero.
+- Codex applies every off-limits path to its shell profile, treats signal termination as failure, and carries its backend selection into suggested certifier commands.
 
 ## 1.0.0 (2026-11-12)
 

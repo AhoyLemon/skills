@@ -23,7 +23,7 @@ const quote = (value: string): string => JSON.stringify(value);
 export const configFor = (spec: RoleSpec): string[] => {
   const paths = new Map<string, string>([[':minimal', 'read'], ['/', 'deny'], ['/System', 'read'], ['/usr', 'read'], ['/bin', 'read'], ['/opt', 'read'], [spec.cwd, 'read']]);
   if (spec.scratch) paths.set(spec.scratch, 'write');
-  for (const path of spec.offLimits) if (path.startsWith(`${spec.cwd}/`)) paths.set(path.replace(/\/$/, ''), 'deny');
+  for (const path of spec.offLimits) paths.set(path.replace(/\/$/, ''), 'deny');
   const filesystem = [...paths].map(([path, access]) => `${quote(path)}=${quote(access)}`).join(', ');
   return ['-c', 'project_doc_max_bytes=0', '-c', 'skills.bundled.enabled=false', '-c', 'features.apps=false', '-c', 'features.plugins=false', '-c', 'web_search="disabled"', '-c', 'approval_policy="never"', '-c', 'default_permissions="actua11y"', '-c', `permissions.actua11y.filesystem={${filesystem}}`, '-c', 'permissions.actua11y.network.enabled=true', '-c', `model=${quote(spec.model)}`, '-c', `model_reasoning_effort=${quote(spec.effort)}`];
 };
@@ -105,6 +105,12 @@ const inspectPrompt = (spec: RoleSpec, home: string, env: Record<string, string>
 
 const homes = new Map<string, { home: string; release: (run?: boolean) => void }>();
 
+export const exitProblem = (code: number | null, signal: NodeJS.Signals | null, stderr: string): string | null => {
+  if (code === 0) return null;
+  if (signal) return `codex terminated by signal ${signal}`;
+  return `codex exited with code ${code}: ${stderr.trim().split('\n').slice(-3).join(' ')}`;
+};
+
 const run = async (spec: RoleSpec, resume?: { sessionId: string; message: string }): Promise<SessionResult> => {
   const prior = resume ? homes.get(resume.sessionId) : undefined;
   const home = prior?.home ?? mkdtempSync(join(tmpdir(), 'actua11y-codex-'));
@@ -143,7 +149,7 @@ const run = async (spec: RoleSpec, resume?: { sessionId: string; message: string
     child.stdout.on('data', (chunk: Buffer) => { const text = chunk.toString(); stdout += text; appendFileSync(spec.transcriptPath, text); });
     child.stderr.on('data', (chunk: Buffer) => { stderr = (stderr + chunk.toString()).slice(-4000); });
     child.on('error', (error) => errors.push(`couldn't start codex: ${error.message}`));
-    child.on('close', (code) => {
+    child.on('close', (code, signal) => {
       clearTimeout(timer);
       stop(false);
       const summary = parseStream(stdout.split('\n'), Date.now() - started);
@@ -153,7 +159,8 @@ const run = async (spec: RoleSpec, resume?: { sessionId: string; message: string
       else release();
       init.sessionId = id;
       if (timedOut) errors.push(`timed out after ${Math.round(spec.timeoutMs / 60_000)} minutes`);
-      if (code !== 0 && code !== null && !errors.length && !summary.errors.length) errors.push(`codex exited with code ${code}: ${stderr.trim().split('\n').slice(-3).join(' ')}`);
+      const failed = exitProblem(code, signal, stderr);
+      if (failed && !errors.length && !summary.errors.length) errors.push(failed);
       const permissionDenials = (stderr.match(/Rejected\(/g) ?? []).length;
       if (spec.noTools && (summary.toolInputs.length || permissionDenials)) errors.push('stopped at start: dry run used or attempted a tool');
       resolve({ sessionId: id, finalTexts: summary.finalTexts, init, usage: summary.usage, exitCode: code, timedOut, errors: [...errors, ...summary.errors], permissionDenials, toolInputs: summary.toolInputs, transcriptPath: spec.transcriptPath });
