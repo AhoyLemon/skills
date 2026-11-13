@@ -82,14 +82,17 @@ const requireCertifierTurn = (view: LoopView, agentUrl: string): void => {
 export const cmdBriefCertifier = (options: Options, client: LoopGh, backend: Backend): number => {
   const { root, state, agentUrl } = openLoop(options, client);
   requireCertifierTurn(state.view, agentUrl);
+  if (state.view.ledger.facts.backend !== backend.name) throw new Error(`This loop uses ${state.view.ledger.facts.backend}; select the same backend for the certifier`);
   const spec = certifierSpec(options, root, '<a fresh scratch folder per run>', '', [], backend.offLimits(root), Math.min(options.maxBudgetUsd, budgetLeft(state.view.ledger)));
-  out(certifierBrief(state.view, { root, commit: headCommit(root), baseUrl: options.url ?? state.view.ledger.site.url ?? '<served for the run>', scratch: '<a fresh scratch folder per run>', browser: '<your installed Chrome or Edge>', channel: 'chrome', spec }));
+  const brief = certifierBrief(state.view, { root, commit: headCommit(root), baseUrl: options.url ?? state.view.ledger.site.url ?? '<served for the run>', scratch: '<a fresh scratch folder per run>', browser: '<your installed Chrome or Edge>', channel: 'chrome', spec });
+  out(backend.costsMeasured === false ? brief.replace(`${spec.maxTurns} turns, $${spec.maxBudgetUsd} and ${Math.round(spec.timeoutMs / 60_000)} minutes`, `${Math.round(spec.timeoutMs / 60_000)} minutes; dollar cost is not measured`) : brief);
   return 0;
 };
 
 export const cmdRunCertifier = async (options: Options, backend: Backend, client: LoopGh): Promise<number> => {
   const context = openLoop(options, client);
   const { root, ledger, state, agentUrl } = context;
+  if (ledger.facts.backend !== backend.name) throw new Error(`This loop uses ${ledger.facts.backend}; select the same backend for the certifier`);
   const level = ledger.facts.level;
   banner(level);
   requireCertifierTurn(state.view, agentUrl);
@@ -123,7 +126,7 @@ export const cmdRunCertifier = async (options: Options, backend: Backend, client
   const runId = newRunId();
   const dir = runDir(ledger.facts.repo, runId);
   mkdirSync(dir, { recursive: true });
-  const prepared = await prepareRun(runId, root, site);
+  const prepared = await prepareRun(runId, root, site, backend);
   try {
     const { scratch, server, baseUrl, browser } = prepared;
     const plan = passPlan(ledger);
@@ -133,7 +136,10 @@ export const cmdRunCertifier = async (options: Options, backend: Backend, client
     const ignored = ignoredIn(root, ['.']);
     const budget = Number(Math.min(options.maxBudgetUsd, left).toFixed(2));
     const spec = certifierSpec(options, root, scratch, join(dir, 'transcript.jsonl'), ignored, backend.offLimits(root), budget);
+    spec.browserEndpoint = prepared.browserEndpoint;
     spec.brief = certifierBrief(state.view, { root, commit: head, baseUrl, scratch, browser: `${browser.channel} ${browser.version} (headless)`, channel: browser.channel, spec });
+    if (backend.costsMeasured === false) spec.brief = spec.brief.replace(`${spec.maxTurns} turns, $${spec.maxBudgetUsd} and ${Math.round(spec.timeoutMs / 60_000)} minutes`, `${Math.round(spec.timeoutMs / 60_000)} minutes; dollar cost is not measured`);
+    if (spec.browserEndpoint) spec.brief = spec.brief.replace(`chromium.launch({ channel: '${browser.channel}', headless: true })`, 'chromium.connect(process.env.ACTUA11Y_BROWSER_WS)').concat('\nThe browser is already running; the kit connects automatically.\n');
     writeFileSync(join(dir, 'brief.md'), spec.brief);
     const meta: RunMeta = {
       runId,
@@ -164,7 +170,7 @@ export const cmdRunCertifier = async (options: Options, backend: Backend, client
     writeJson(join(dir, 'meta.json'), meta);
 
     heading(`Certifier pass ${pass}`);
-    out(dim(`A fresh, read-only ${backend.name} session (${options.model}, effort ${options.effort}), isolated exactly like the finder, judging ${plural(plan.items.length, 'item', 'items')} and ${plural(carried.length, 'carried repro', 'carried repros')} at ${head.slice(0, 12)}, then re-walking the whole target. Capped at ${options.maxTurns} turns, $${budget} and ${options.timeoutMinutes} minutes.`));
+    out(dim(`A fresh, read-only ${backend.name} session (${options.model}, effort ${options.effort}), isolated exactly like the finder, judging ${plural(plan.items.length, 'item', 'items')} and ${plural(carried.length, 'carried repro', 'carried repros')} at ${head.slice(0, 12)}, then re-walking the whole target. ${backend.costsMeasured === false ? `Capped at ${options.timeoutMinutes} minutes; dollar cost is not measured.` : `Capped at ${options.maxTurns} turns, $${budget} and ${options.timeoutMinutes} minutes.`}`));
     const run = await runRole(backend, spec, (raw) => validateCertifierReport(raw, { criteria: criteriaAt(level), repoRoot: root, tracked: trackedFiles(root), items: plan.items, carried }));
     const after = aftermath(run, spec, root, before, options.allowIgnored);
     meta.finishedAt = new Date().toISOString();
@@ -173,7 +179,7 @@ export const cmdRunCertifier = async (options: Options, backend: Backend, client
     writeJson(join(dir, 'meta.json'), meta);
     if (!printAftermath(run, after, spec, dir) || !run.checked.ok) {
       postRun(client, runTarget(state, ledger), renderUnfiledComments(state.view, { runId, usage: run.usage, why: `It ended without a usable report, after ${plural(run.attempts, 'attempt', 'attempts')}.`, transcriptPath: spec.transcriptPath }));
-      out(dim('Its cost is posted on the record, so it counts against the loop\'s budget.'));
+      out(dim(run.usage.costUsd === null ? 'The run is posted on the record; its dollar cost is not measured.' : 'Its cost is posted on the record, so it counts against the loop\'s budget.'));
       return 1;
     }
 

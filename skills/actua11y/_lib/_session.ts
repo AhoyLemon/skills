@@ -82,36 +82,40 @@ const reportedUsage = (session: SessionResult): boolean => session.usage.turns >
 export const runRole = async <R>(backend: Backend, spec: RoleSpec, validate: (raw: unknown) => Checked<R>): Promise<RoleRun<R>> => {
   const startedAt = Date.now();
   let session = await backend.start(spec);
-  let usage: Usage = session.usage;
-  let attempts = 1;
-  let denials = session.permissionDenials;
-  let unreported = !reportedUsage(session);
-  const errors = [...session.errors];
-  const toolInputs = [...session.toolInputs];
-  let attempt = reportFrom(session, validate);
-  const stoppedAtStart = session.errors.some((error) => error.startsWith('stopped at start'));
-  // Retries share the caps the user agreed to. Each one gets only what's left, and none starts without a useful amount left.
-  while (!attempt.checked.ok && !stoppedAtStart && session.sessionId && reportedUsage(session) && attempts < MAX_ATTEMPTS) {
-    const left = { usd: spec.maxBudgetUsd - usage.costUsd, turns: spec.maxTurns - usage.turns, ms: spec.timeoutMs - (Date.now() - startedAt) };
-    if (left.usd < 0.5 || left.turns < 5 || left.ms < 2 * 60_000) {
-      warnLine('the report has problems, but too little of the budget, turns or time is left to send them back');
-      break;
+  try {
+    let usage: Usage = session.usage;
+    let attempts = 1;
+    let denials = session.permissionDenials;
+    let unreported = !reportedUsage(session);
+    const errors = [...session.errors];
+    const toolInputs = [...session.toolInputs];
+    let attempt = reportFrom(session, validate);
+    const stoppedAtStart = session.errors.some((error) => error.startsWith('stopped at start'));
+    // Retries share the caps the user agreed to. Each one gets only what's left, and none starts without a useful amount left.
+    while (!attempt.checked.ok && !stoppedAtStart && session.sessionId && reportedUsage(session) && attempts < MAX_ATTEMPTS) {
+      const left = { usd: spec.maxBudgetUsd - (usage.costUsd ?? 0), turns: spec.maxTurns - usage.turns, ms: spec.timeoutMs - (Date.now() - startedAt) };
+      if ((usage.costUsd !== null && (left.usd < 0.5 || left.turns < 5)) || left.ms < 2 * 60_000) {
+        warnLine('the report has problems, but too little of the budget, turns or time is left to send them back');
+        break;
+      }
+      warnLine(`the report has ${attempt.checked.ok ? 0 : attempt.checked.errors.length} problem(s), so the runner is sending them back (attempt ${attempts + 1} of ${MAX_ATTEMPTS})`);
+      const retry = { ...spec, maxBudgetUsd: Number(left.usd.toFixed(2)), maxTurns: Math.floor(left.turns), timeoutMs: left.ms };
+      session = await backend.resume(retry, session.sessionId, fixMessage(attempt.checked.ok ? [] : attempt.checked.errors));
+      usage = addUsage(usage, session.usage);
+      denials += session.permissionDenials;
+      unreported ||= !reportedUsage(session);
+      errors.push(...session.errors);
+      toolInputs.push(...session.toolInputs);
+      attempts += 1;
+      attempt = reportFrom(session, validate);
     }
-    warnLine(`the report has ${attempt.checked.ok ? 0 : attempt.checked.errors.length} problem(s), so the runner is sending them back (attempt ${attempts + 1} of ${MAX_ATTEMPTS})`);
-    const retry = { ...spec, maxBudgetUsd: Number(left.usd.toFixed(2)), maxTurns: Math.floor(left.turns), timeoutMs: left.ms };
-    session = await backend.resume(retry, session.sessionId, fixMessage(attempt.checked.ok ? [] : attempt.checked.errors));
-    usage = addUsage(usage, session.usage);
-    denials += session.permissionDenials;
-    unreported ||= !reportedUsage(session);
-    errors.push(...session.errors);
-    toolInputs.push(...session.toolInputs);
-    attempts += 1;
-    attempt = reportFrom(session, validate);
+    // A session stopped at its first event, or one that never said what it loaded, isn't trusted, whatever it reported.
+    const untrusted = errors.filter((error) => error.startsWith('stopped at start'));
+    const checked: Checked<R> = untrusted.length > 0 ? { ok: false, errors: untrusted } : attempt.checked;
+    return { sessionId: session.sessionId, attempts, usage, denials, unreported, errors, toolInputs, finalTexts: session.finalTexts, checked, raw: attempt.raw };
+  } finally {
+    backend.finish?.(session.sessionId);
   }
-  // A session stopped at its first event, or one that never said what it loaded, isn't trusted, whatever it reported.
-  const untrusted = errors.filter((error) => error.startsWith('stopped at start'));
-  const checked: Checked<R> = untrusted.length > 0 ? { ok: false, errors: untrusted } : attempt.checked;
-  return { sessionId: session.sessionId, attempts, usage, denials, unreported, errors, toolInputs, finalTexts: session.finalTexts, checked, raw: attempt.raw };
 };
 
 export interface Aftermath {

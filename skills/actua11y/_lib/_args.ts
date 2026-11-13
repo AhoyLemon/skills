@@ -64,6 +64,7 @@ export const parseOptions = (argv: string[], backend: Backend): Options => {
     args: argv,
     allowPositionals: true,
     options: {
+      backend: { type: 'string' },
       cwd: { type: 'string' },
       level: { type: 'string' },
       scope: { type: 'string', multiple: true },
@@ -162,5 +163,5 @@ Fix and certify (every one takes --issue <the agent issue's number>, or finds th
   node runner.ts status          where the loop stands, rebuilt from GitHub alone, and what to run next
   node runner.ts serve           --serve <dir>   serves a static site on localhost until stopped
 
-Sessions the runner starts take [--model ${backend.defaults.model}] [--effort ${backend.defaults.effort}] [--max-turns ${DEFAULTS.maxTurns}] [--max-budget-usd ${DEFAULTS.maxBudgetUsd}] [--timeout-minutes ${DEFAULTS.timeoutMinutes}].
+Sessions the runner starts take [--backend claude-code|codex] [--model ${backend.defaults.model}] [--effort ${backend.defaults.effort}] [--timeout-minutes ${DEFAULTS.timeoutMinutes}]${backend.costsMeasured === false ? '. This backend reports tokens, not dollar cost; the timeout is its cap.' : ` [--max-turns ${DEFAULTS.maxTurns}] [--max-budget-usd ${DEFAULTS.maxBudgetUsd}].`}
 Run it from inside the repository you're auditing (or pass --cwd).`;

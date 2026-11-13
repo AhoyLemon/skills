@@ -47,11 +47,12 @@ export interface NextStep {
 // What happens next, worked out from the ledger and the person's ticks alone.
 export const nextStep = (ledger: Ledger, ticked: ReadonlySet<string>, agentUrl: string): NextStep => {
   const issue = `--issue ${issueNumber(agentUrl)}`;
+  const certifier = `node runner.ts run certifier${ledger.facts.backend === 'Codex' ? ' --backend codex' : ''} ${issue}`;
   if (ledger.stage === 'filed') return { says: 'Filed, and assess-only stops here. The fix-and-certify loop starts when the user wants it.', command: `node runner.ts loop start ${issue}` };
   if (ledger.stage === 'closed') return { says: 'Closed out. The merge is the person\'s.', command: null };
   if (ledger.stage === 'ai') {
     const lastAi = ledger.rounds.filter((round) => round.stage === 'ai').at(-1);
-    if (lastAi?.kind === 'fixer') return { says: `Fixer round ${lastAi.n} is recorded, so a blind certifier checks it next.`, command: `node runner.ts run certifier ${issue}` };
+    if (lastAi?.kind === 'fixer') return { says: `Fixer round ${lastAi.n} is recorded, so a blind certifier checks it next.`, command: certifier };
     if (budgetLeft(ledger) < MIN_PASS_USD) return { says: "The loop's budget is spent, so the AI rounds end here.", command: `node runner.ts loop stop ${issue}` };
     return { says: `Fixer round ${fixerRounds(ledger) + 1} of ${MAX_FIXER_ROUNDS}: hand a subagent the brief, unchanged.`, command: `node runner.ts brief fixer ${issue}` };
   }
@@ -65,7 +66,7 @@ export const nextStep = (ledger: Ledger, ticked: ReadonlySet<string>, agentUrl: 
   const lastHuman = ledger.rounds.filter((round) => round.stage === 'human').at(-1);
   const capped = humanPassesSinceApproval(ledger) >= MAX_HUMAN_PASSES;
   if (capped) return { says: `The human round hit its cap of ${MAX_HUMAN_PASSES} certifier runs without an approving pass. Close-out can still happen, and says so plainly.`, command: `node runner.ts close-out ${issue} --at-cap` };
-  if (lastHuman?.kind === 'fixer') return { says: `Fixer round ${lastHuman.n} is recorded, so a blind certifier guards it next.`, command: `node runner.ts run certifier ${issue}` };
+  if (lastHuman?.kind === 'fixer') return { says: `Fixer round ${lastHuman.n} is recorded, so a blind certifier guards it next.`, command: certifier };
   const person: string[] = [];
   if (waiting.unticked.length > 0) person.push(`${plural(waiting.unticked.length, 'check', 'checks')} to tick or turn into a finding (${waiting.unticked.join(', ')})`);
   if (waiting.undecided.length > 0) person.push(`${plural(waiting.undecided.length, 'fail', 'fails')} to decide (${waiting.undecided.join(', ')})`);
@@ -74,7 +75,7 @@ export const nextStep = (ledger: Ledger, ticked: ReadonlySet<string>, agentUrl: 
   if (toFix.length > 0) return { says: `The human round. ${plural(toFix.length, 'thing', 'things')} to fix (${toFix.join(', ')}). Hand a subagent the fixer brief, or the person fixes things by hand and pushes, then a blind certifier guards the work.${waitingText}`, command: `node runner.ts brief fixer ${issue}` };
   // A pass can't settle a fail nobody has decided on yet, so the person decides before another one runs.
   if (waiting.undecided.length > 0) return { says: `The human round. Waiting on the person to decide ${waiting.undecided.join(', ')}: fix it (and how), accept it as it is, or not applicable (and why), in their own words in their issue.${waiting.unticked.length > 0 ? ` Also ${person[0] ?? ''}.` : ''}`, command: null };
-  if (unjudged.length > 0 || latest?.approved !== true) return { says: `The human round. Once the fixes are pushed to the branch, a blind certifier guards them${unjudged.length > 0 ? ` (${unjudged.join(', ')} not yet judged at the latest commit)` : ''}.${waitingText}`, command: `node runner.ts run certifier ${issue}` };
+  if (unjudged.length > 0 || latest?.approved !== true) return { says: `The human round. Once the fixes are pushed to the branch, a blind certifier guards them${unjudged.length > 0 ? ` (${unjudged.join(', ')} not yet judged at the latest commit)` : ''}.${waitingText}`, command: certifier };
   if (person.length > 0) return { says: `The latest pass approved.${waitingText}`, command: null };
   return { says: 'The latest pass approved, and the person has ticked, decided or turned into a finding everything.', command: `node runner.ts close-out ${issue}` };
 };
@@ -101,7 +102,7 @@ export const cmdLoopStart = (options: Options, client: LoopGh): number => {
   banner(ledger.facts.level);
   if (ledger.loop) throw new Error(`The loop for ${agentUrl} already started, on ${ledger.loop.branch}. Run \`node runner.ts status --issue ${issueNumber(agentUrl)}\``);
   if (porcelain(root).length > 0) throw new Error('The working tree has uncommitted or untracked changes. Commit, stash or remove them first: the loop cuts a branch from the audited commit');
-  if (options.budgetUsd < ledger.spentUsd + MIN_PASS_USD) throw new Error(`A $${options.budgetUsd} budget leaves no room: $${ledger.spentUsd.toFixed(2)} is already spent on the dry run and the finder. Pass a bigger --budget-usd`);
+  if (ledger.facts.usage.costUsd !== null && options.budgetUsd < ledger.spentUsd + MIN_PASS_USD) throw new Error(`A $${options.budgetUsd} budget leaves no room: $${ledger.spentUsd.toFixed(2)} is already spent on the dry run and the finder. Pass a bigger --budget-usd`);
   const branch = options.branch ?? `actua11y-${ledger.facts.level.toLowerCase()}-${issueNumber(agentUrl)}`;
   // A branch still sitting at the audited commit is this command's own, left by a run that stopped partway, so a rerun picks it up. Anything else is someone else's work.
   const reuse = branchExists(root, branch);
@@ -120,7 +121,7 @@ export const cmdLoopStart = (options: Options, client: LoopGh): number => {
     okLine('the finder proved no fails, so the AI rounds are skipped and the human round starts');
   }
   saveLoop(client, state, { ledger: next, passes: state.view.passes });
-  okLine(`budget for everything the runner starts: $${options.budgetUsd.toFixed(2)}, of which $${ledger.spentUsd.toFixed(2)} is already spent`);
+  okLine(ledger.facts.usage.costUsd === null ? `${ledger.facts.backend} reports tokens, not dollar cost, so the dollar budget cannot limit these runs` : `budget for everything the runner starts: $${options.budgetUsd.toFixed(2)}, of which $${ledger.spentUsd.toFixed(2)} is already spent`);
   out(dim('The fixer runs as a subagent in this session, so its cost lands here and is reported as tokens and minutes, never counted against that budget.'));
   printNext(next, state.kept?.ticked ?? new Set(), agentUrl);
   return 0;
@@ -266,7 +267,7 @@ export const cmdStatus = (options: Options, client: LoopGh): number => {
   out(`  Agent fails: ${count('open')} open, ${count('claimed')} claimed, ${count('certified')} certified, ${count('moved')} moved to the person (${agentItems(ledger).length} still with the agents)`);
   out(`  Person: ${ticked.size} of ${plural(ledger.checks.length, 'check', 'checks')} ticked, ${plural(ledger.human.length, 'finding', 'findings')} of their own`);
   out(`  Rounds: ${plural(fixerRounds(ledger), 'fixer round', 'fixer rounds')}, ${plural(ledger.rounds.filter((round) => round.kind === 'certifier').length, 'certifier run', 'certifier runs')}${latestPass(ledger) ? `, the latest ${latestPass(ledger)?.approved ? 'approved' : 'not approved'} at ${latestPass(ledger)?.sha.slice(0, 12)}` : ''}`);
-  if (ledger.loop) out(`  Spent by what the runner starts: $${ledger.spentUsd.toFixed(2)} of $${ledger.loop.budgetUsd.toFixed(2)}`);
+  if (ledger.loop) out(ledger.facts.usage.costUsd === null ? '  Dollar cost is not measured; the dollar budget does not limit these runs.' : `  Spent by what the runner starts: $${ledger.spentUsd.toFixed(2)} of $${ledger.loop.budgetUsd.toFixed(2)}`);
   if (state.kept === null) warnLine("the markers around the person's own notes are gone from their issue, so actua11y won't rewrite it until they're back");
   const latest = latestPass(ledger);
   if (latest?.usage) out(dim(`  Latest certifier run: ${formatUsage(latest.usage)}`));

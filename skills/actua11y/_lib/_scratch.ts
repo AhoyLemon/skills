@@ -1,7 +1,8 @@
 // One fresh scratch folder per run, with the browser kit installed inside it (never in the skill or the user's project), deleted however the run ends.
 import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve as resolvePath } from 'node:path';
+import { spawn } from 'node:child_process';
 
 import { exec } from './_exec.ts';
 
@@ -44,3 +45,47 @@ export const probeBrowser = (dir: string): Probe => {
 export const removeDir = (dir: string): void => {
   rmSync(dir, { recursive: true, force: true });
 };
+
+export interface BrowserServer {
+  endpoint: string;
+  close: () => Promise<void>;
+}
+
+// The browser lives with the runner when a session's sandbox cannot launch it.
+export const startBrowserServer = (dir: string, channel: string): Promise<BrowserServer> => new Promise((resolve, reject) => {
+  const root = resolvePath(dir);
+  const child = spawn(process.execPath, [join(root, 'kit', 'browser-server.ts'), channel], { cwd: root, stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '';
+  let errors = '';
+  let settled = false;
+  const timer = setTimeout(() => fail('browser server did not start in 30 seconds'), 30_000);
+  const fail = (message: string): void => {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    child.kill('SIGTERM');
+    reject(new Error(message));
+  };
+  child.stderr.on('data', (chunk: Buffer) => { errors = (errors + chunk.toString()).slice(-4000); });
+  child.stdout.on('data', (chunk: Buffer) => {
+    output += chunk.toString();
+    const newline = output.indexOf('\n');
+    if (newline < 0 || settled) return;
+    const endpoint = output.slice(0, newline).trim();
+    if (!endpoint.startsWith('ws://127.0.0.1:')) return fail('browser server returned an unexpected endpoint');
+    settled = true;
+    clearTimeout(timer);
+    resolve({ endpoint, close: async () => {
+      if (child.exitCode !== null || child.signalCode !== null) return;
+      await new Promise<void>((done) => {
+        child.once('exit', () => done());
+        child.kill('SIGTERM');
+        const force = setTimeout(() => { child.kill('SIGKILL'); done(); }, 5000);
+        force.unref();
+        child.once('exit', () => clearTimeout(force));
+      });
+    } });
+  });
+  child.on('error', (error) => fail(`couldn't start browser server: ${error.message}`));
+  child.on('exit', (code) => fail(`browser server exited (${code}): ${errors.trim()}`));
+});

@@ -4,6 +4,8 @@ You're auditing the site in this repository against **WCAG 2.2 {{LEVEL_LABEL}}**
 
 One rule runs through all of it: **a machine can prove a fail, and it can never prove a pass.** So you never write that something passes, complies or conforms. You write what you did and what you found.
 
+Do not look for prior pull requests, archived reviews, or saved audit reports as an answer key. Judge the repository and running site yourself.
+
 ## What you're auditing
 
 - **Repository:** {{REPO_ROOT}} (your working directory)

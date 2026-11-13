@@ -20,10 +20,11 @@ export interface RoleSpec {
   maxBudgetUsd: number;
   timeoutMs: number;
   transcriptPath: string;
+  browserEndpoint?: string;
 }
 
 export interface Usage {
-  costUsd: number;
+  costUsd: number | null;
   turns: number;
   durationMs: number;
   inputTokens: number;
@@ -72,12 +73,17 @@ export interface BackendCheck {
 
 export interface Backend {
   name: string;
+  selector?: string;
+  browserServer?: boolean;
+  costsMeasured?: boolean;
+  dryRunNoTools?: boolean;
   // The agent's own model id and effort scale, so nothing outside the backend has to know them.
   defaults: { model: string; effort: string };
   efforts: readonly string[];
   preflight: (repoRoot: string) => BackendCheck[];
   start: (spec: RoleSpec) => Promise<SessionResult>;
   resume: (spec: RoleSpec, sessionId: string, message: string) => Promise<SessionResult>;
+  finish?: (sessionId: string) => void;
   initProblems: (init: InitInfo | null, spec: RoleSpec) => string[];
   // Where this agent keeps other sessions' files outside the home folder (temp scratch, task output), so the finder can be barred from them.
   offLimits: (cwd: string) => string[];
@@ -86,7 +92,7 @@ export interface Backend {
 export const emptyUsage = (): Usage => ({ costUsd: 0, turns: 0, durationMs: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 });
 
 export const addUsage = (a: Usage, b: Usage): Usage => ({
-  costUsd: a.costUsd + b.costUsd,
+  costUsd: a.costUsd === null || b.costUsd === null ? null : a.costUsd + b.costUsd,
   turns: a.turns + b.turns,
   durationMs: a.durationMs + b.durationMs,
   inputTokens: a.inputTokens + b.inputTokens,

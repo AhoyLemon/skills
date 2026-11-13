@@ -2,10 +2,10 @@
 name: actua11y
 description: An accessibility audit and fix loop for coding agents that is honest about what a machine settled and what still needs a person. Audits a site against WCAG 2.2 (A, AA or AAA) with a fresh, isolated, read-only session that drives a real browser, files two GitHub issues (every proven fail for agents, everything a machine can't settle for a person), then, if you want, fixes the fails, has a blind certifier check every fix, hands the rest to a person who works it with the fixer while a certifier guards every fix, and closes both issues with one PR. Use when someone asks for an accessibility audit, an a11y review, WCAG conformance, "is this accessible?", or to fix accessibility issues. It never says a site passes.
 license: MIT for code, CC BY 4.0 for prose. See LICENSE in github.com/AhoyLemon/skills.
-compatibility: Claude Code, with Node 22.18 or later, git, the GitHub CLI signed in, and Chrome or Edge installed (or Playwright's own Chromium).
+compatibility: Claude Code or Codex, with Node 22.18 or later, git, the GitHub CLI signed in, and Chrome or Edge installed (or Playwright's own Chromium).
 metadata:
   author: Lemon
-  version: 1.0.0
+  version: 1.1.0
 allowed-tools: Read(${CLAUDE_SKILL_DIR}/**) Bash(node ${CLAUDE_SKILL_DIR}/runner.ts *)
 ---
 
@@ -36,6 +36,8 @@ You, in the user's own session, are the orchestrator: you do the intake, call th
 
 The runner lives in this skill's base directory. Call it as `node <base directory>/runner.ts <command>`, from inside the repository being audited. Run `node --version` first: it needs 22.18 or later. `node <base>/runner.ts --help` lists every command.
 
+In Codex, pass `--backend codex` to preflight, dry-run, brief finder, run finder, brief certifier and run certifier; Claude Code is the default. The runner must be able to start Chrome and create a child sandbox, so run it outside any enclosing sandbox when necessary. See [Codex's isolation and limits](references/codex.md) before starting.
+
 The record lives on GitHub: the two issues and the PR. Nothing you need to carry on is kept anywhere else, so a loop can pick up days later in a fresh session. When you're unsure where things stand, run `node <base>/runner.ts status --issue <agent issue number>`. It rebuilds the state from GitHub alone and prints the next command.
 
 ### 0. Intake
@@ -50,8 +52,8 @@ Ask these together where you can, and keep it brisk.
 - **Assess-only, or the full loop.** Assess-only files the two issues and stops. The loop goes on to fix every ❌, certify each fix blind, hand the rest to a person, and close both issues with one PR. Either is a real option, and an assess-only run can become a loop later.
 - **Filing.** Say where it will file: two issues on this repository's GitHub, one for agents and one for a person, assigned to them. For the loop, also a branch and a draft PR, which stays a draft until close-out. Get their OK before the first real run.
 - **The model.** Its own question, never bundled with anything else: which model the finder and the certifier run on, with the default from `--help` as the recommended answer and a cheaper one as the alternative. Pass `--model` (and `--effort`, if they want a different one) to every command that starts a session.
-- **The loop's budget.** Its own question too: the most the runner may spend across the whole loop (dry runs, the finder, every certifier pass), with $60 as the recommended answer. Pass it as `--budget-usd` to `loop start`. Say that the fixer runs as a subagent in this session, so its cost lands here, reported as tokens and minutes, and never counts against that budget.
-- **The per-session caps,** in a line, not a question: each session stops at 300 turns, $20 or 60 minutes, shared across any correction rounds. Pass `--max-turns`, `--max-budget-usd` or `--timeout-minutes` only if the user asks for different.
+- **The loop's budget.** For Claude Code, ask the most the runner may spend across the whole loop (dry runs, the finder, every certifier pass), with $60 as the recommended answer. Pass it as `--budget-usd` to `loop start`. Codex reports tokens, not dollars, so its dollar cost is not measured and a dollar budget cannot limit its runs. The fixer runs as a subagent in this session, with tokens and minutes reported by that session.
+- **The per-session caps,** in a line, not a question: Claude Code stops at 300 turns, $20 or 60 minutes, shared across correction rounds. Codex has only the 60-minute wall-clock cap; tokens are reported but its dollar spend is not measured. Pass `--timeout-minutes` or, for Claude Code, `--max-turns` and `--max-budget-usd` only if the user asks for different.
 
 ### 1. Preflight
 
