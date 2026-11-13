@@ -75,7 +75,7 @@ export const formatUsage = (usage: Usage): string => {
   const minutes = (usage.durationMs / 60_000).toFixed(1);
   const tokens = totalTokens(usage);
   const tokenText = tokens >= 1_000_000 ? `${(tokens / 1_000_000).toFixed(2)}M` : `${Math.round(tokens / 1000)}k`;
-  return `${usage.turns} turns · ${minutes} min · $${usage.costUsd.toFixed(2)} · ${tokenText} tokens`;
+  return usage.costUsd === null ? `${minutes} min · cost not measured · ${tokenText} tokens` : `${usage.turns} turns · ${minutes} min · $${usage.costUsd.toFixed(2)} · ${tokenText} tokens`;
 };
 
 export const plural = (count: number, one: string, many: string): string => `${count} ${count === 1 ? one : many}`;
@@ -111,7 +111,7 @@ const tokenCount = (tokens: number | null): string => (tokens === null ? 'unrepo
 const before = (iso: string, ms: number): string | null => (Number.isNaN(Date.parse(iso)) ? null : new Date(Date.parse(iso) - ms).toISOString());
 const modelText = (model: string | null, effort: string | null): string => (model ? `\`${model}\`${effort ? ` at ${effort}` : ''}` : '—');
 
-export const COST_NOTE = "Spend is the agent's own estimate, and each run's includes the dry run that cleared it to start. A fixer runs in your own session and bills there, so its tokens are what that session reported.";
+export const COST_NOTE = "Measured spend is the agent's own estimate, and each run's includes the dry run that cleared it to start. Some backends report tokens but not dollar cost. A fixer runs in your own session and bills there, so its tokens are what that session reported.";
 
 export const fixerCostRow = (round: number, at: string, reported: { tokens: number | null; minutes: number | null } | null, leftUsd: number | null): CostRow => {
   const minutes = reported?.minutes ?? null;
@@ -121,19 +121,19 @@ export const fixerCostRow = (round: number, at: string, reported: { tokens: numb
 // Every run the loop knows of, oldest first, with the budget left after each.
 export const costRows = (ledger: Ledger): CostRow[] => {
   const { facts } = ledger;
-  const budget = ledger.loop?.budgetUsd ?? null;
+  const budget = ledger.facts.usage.costUsd === null ? null : ledger.loop?.budgetUsd ?? null;
   let spent = 0;
   const left = (): number | null => (budget === null ? null : budget - spent);
-  const finder = facts.usage.costUsd + (facts.dryRunUsage?.costUsd ?? 0);
-  spent += finder;
+  const finder = facts.usage.costUsd === null || facts.dryRunUsage?.costUsd === null ? null : facts.usage.costUsd + (facts.dryRunUsage?.costUsd ?? 0);
+  spent += finder ?? 0;
   const rows: CostRow[] = [{ key: 'finder', run: 'Finder', model: modelText(facts.model, facts.effort), startedAt: before(facts.finishedAt, facts.usage.durationMs), endedAt: facts.finishedAt, tokens: totalTokens(facts.usage), spendUsd: finder, leftUsd: left() }];
   for (const round of ledger.rounds) {
     if (round.kind === 'fixer') {
       rows.push(fixerCostRow(round.n, round.at, round.reported, left()));
       continue;
     }
-    const spend = (round.usage?.costUsd ?? 0) + (round.dryRunUsd ?? 0);
-    spent += spend;
+    const spend = round.usage?.costUsd === null ? null : (round.usage?.costUsd ?? 0) + (round.dryRunUsd ?? 0);
+    spent += spend ?? 0;
     rows.push({ key: `certifier-${round.runId ?? round.n}`, run: `Certifier pass ${round.n}`, model: modelText(round.model, round.effort), startedAt: round.usage ? before(round.at, round.usage.durationMs) : null, endedAt: round.at, tokens: round.usage ? totalTokens(round.usage) : null, spendUsd: spend, leftUsd: left() });
   }
   const rest = ledger.spentUsd - spent;
@@ -146,9 +146,9 @@ export const costRows = (ledger: Ledger): CostRow[] => {
 
 export const costTable = (rows: CostRow[], ledger: Ledger, withTotal = false): string[] => {
   const zone = ledger.facts.timeZone ?? 'UTC';
-  const budget = ledger.loop?.budgetUsd ?? null;
+  const budget = ledger.facts.usage.costUsd === null ? null : ledger.loop?.budgetUsd ?? null;
   const leftText = (left: number | null): string => (left === null || budget === null ? '—' : `$${left.toFixed(2)} of $${budget.toFixed(2)}`);
-  const line = (row: CostRow): string => `| ${row.run} | ${row.model} | ${timeText(row.startedAt, zone)} | ${timeText(row.endedAt, zone)} | ${row.tokens === null && row.spendUsd !== null ? '—' : tokenCount(row.tokens)} | ${row.spendUsd === null ? 'billed to your session' : `$${row.spendUsd.toFixed(2)}`} | ${leftText(row.leftUsd)} |`;
+  const line = (row: CostRow): string => `| ${row.run} | ${row.model} | ${timeText(row.startedAt, zone)} | ${timeText(row.endedAt, zone)} | ${row.tokens === null && row.spendUsd !== null ? '—' : tokenCount(row.tokens)} | ${row.spendUsd === null ? row.key.startsWith('fixer-') ? 'billed to your session' : 'not measured' : `$${row.spendUsd.toFixed(2)}`} | ${leftText(row.leftUsd)} |`;
   const lines = ['| Run | Model | Started | Ended | Tokens | Spend | Budget left |', '|---|---|---|---|---|---|---|', ...rows.map(line)];
   if (withTotal) {
     const starts = rows.map((row) => row.startedAt).filter((at): at is string => at !== null).sort();
@@ -156,7 +156,9 @@ export const costTable = (rows: CostRow[], ledger: Ledger, withTotal = false): s
     const unreported = rows.some((row) => row.tokens === null && row.spendUsd === null);
     const tokens = rows.reduce((sum, row) => sum + (row.tokens ?? 0), 0);
     const spend = rows.reduce((sum, row) => sum + (row.spendUsd ?? 0), 0);
-    lines.push(`| **Total** | | ${timeText(starts[0] ?? null, zone)} | ${timeText(ends.at(-1) ?? null, zone)} | ${tokenCount(tokens)}${unreported ? ', with some unreported' : ''} | $${spend.toFixed(2)}, plus the fixer in your session | ${leftText(budget === null ? null : budget - spend)} |`);
+    const missingSpend = rows.some((row) => row.spendUsd === null && !row.key.startsWith('fixer-'));
+    const totalSpend = missingSpend && spend === 0 ? 'not measured' : `$${spend.toFixed(2)}${missingSpend ? ' measured, plus costs not measured' : ''}`;
+    lines.push(`| **Total** | | ${timeText(starts[0] ?? null, zone)} | ${timeText(ends.at(-1) ?? null, zone)} | ${tokenCount(tokens)}${unreported ? ', with some unreported' : ''} | ${totalSpend}, plus the fixer in your session | ${leftText(budget === null ? null : budget - spend)} |`);
   }
   return lines;
 };
@@ -302,7 +304,8 @@ const loopLine = (view: LoopView): string => {
   const count = (status: AgentItem['status']): number => ledger.items.filter((item) => item.status === status).length;
   const stage = ledger.stage === 'ai' ? 'the AI rounds' : ledger.stage === 'human' ? 'the human round' : 'closed';
   const pr = ledger.loop.pr ? ` · [the PR](${ledger.loop.pr})` : '';
-  return `## The loop\n\nNow in ${stage}. ${count('open')} open · ${count('claimed')} claimed · ${count('certified')} with a certifier's ✅ · ${count('moved')} moved to the person · $${ledger.spentUsd.toFixed(2)} of a $${ledger.loop.budgetUsd.toFixed(2)} budget spent by what the runner starts${pr}\n`;
+  const spend = ledger.facts.usage.costUsd === null ? 'cost not measured; the dollar budget does not limit these runs' : `$${ledger.spentUsd.toFixed(2)} of a $${ledger.loop.budgetUsd.toFixed(2)} budget spent by what the runner starts`;
+  return `## The loop\n\nNow in ${stage}. ${count('open')} open · ${count('claimed')} claimed · ${count('certified')} with a certifier's ✅ · ${count('moved')} moved to the person · ${spend}${pr}\n`;
 };
 
 export const renderAgentIssue = (view: LoopView, links: { personUrl: string | null }): RenderedIssue => {

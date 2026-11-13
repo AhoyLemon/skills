@@ -11,8 +11,15 @@ import { cmdBrief, cmdRunFinder } from './_lib/_cmd-run.ts';
 import { realLoopGh } from './_lib/_loop.ts';
 import { nodeIsNewEnough } from './_lib/_preflight.ts';
 import { claudeCode } from './_backends/_claude-code.ts';
+import { codex } from './_backends/_codex.ts';
 
-const backend: Backend = claudeCode;
+const selectBackend = (args: string[]): Backend => {
+  const value = args.flatMap((arg, i) => arg === '--backend' ? [args[i + 1] ?? ''] : arg.startsWith('--backend=') ? [arg.slice('--backend='.length)] : []);
+  if (value.length > 1) throw new Error('Pass --backend only once');
+  if (value.length === 0 || value[0] === 'claude-code') return claudeCode;
+  if (value[0] === 'codex') return codex;
+  throw new Error('--backend must be claude-code or codex');
+};
 
 const subjectOf = (options: Options, allowed: string[]): string => {
   if (!allowed.includes(options.subject)) throw new Error(`\`${options.command}\` takes ${allowed.map((subject) => `\`${subject}\``).join(', ')}, not "${options.subject}"`);
@@ -20,6 +27,7 @@ const subjectOf = (options: Options, allowed: string[]): string => {
 };
 
 const main = async (): Promise<number> => {
+  const backend = selectBackend(process.argv.slice(2));
   if (!nodeIsNewEnough(process.version)) {
     err(`actua11y needs Node 22.18 or later to run TypeScript directly. This is ${process.version}.`);
     return 1;

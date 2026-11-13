@@ -45,13 +45,14 @@ export const cmdDryRun = async (options: Options, backend: Backend): Promise<num
     timeoutMs: 3 * 60_000,
     transcriptPath: join(dryRunsDir(repo), `${at.replace(/[-:.]/g, '')}.jsonl`),
   };
-  out(dim(`Starting a fresh ${backend.name} session with no tools, isolated the same way the finder will be...`));
+  out(dim(`Starting a fresh ${backend.name} session ${backend.dryRunNoTools === false ? 'instructed not to use tools' : 'with no tools'}, isolated the same way the finder will be...`));
   const session = await backend.start(spec);
+  backend.finish?.(session.sessionId);
   const problems = session.init ? session.errors : ['The session sent no init event, so there is no way to confirm what it loaded', ...session.errors];
-  heading('What the session reports loading');
+  heading(backend.dryRunNoTools === false ? 'What prompt inspection found' : 'What the session reports loading');
   if (session.init) {
     const init = session.init;
-    out(`  model ${init.model}, ${backend.name} ${init.version}, permission mode ${init.permissionMode}`);
+    out(`  ${backend.dryRunNoTools === false ? 'requested model' : 'model'} ${init.model}, ${backend.name} ${init.version}, permission mode ${init.permissionMode}`);
     out(`  login: ${init.login}`);
     out(`  tools: ${init.tools.length > 0 ? init.tools.join(', ') : 'none'}`);
     out(`  MCP servers: ${init.mcpServers.length > 0 ? init.mcpServers.join(', ') : 'none'}`);
@@ -59,7 +60,7 @@ export const cmdDryRun = async (options: Options, backend: Backend): Promise<num
     out(`  plugins: ${init.plugins.length > 0 ? init.plugins.join(', ') : 'none'}`);
   }
   heading('Mechanical check');
-  if (problems.length === 0) okLine('nothing loaded beyond what actua11y expects');
+  if (problems.length === 0) okLine(backend.dryRunNoTools === false ? 'prompt inspection found no skills or unexpected tool namespaces' : 'nothing loaded beyond what actua11y expects');
   for (const problem of problems) failLine(problem);
   const answer = session.finalTexts.at(-1)?.trim() ?? '';
   if (answer === '' && problems.length > 0) {

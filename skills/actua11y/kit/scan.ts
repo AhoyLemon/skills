@@ -45,6 +45,8 @@ const axeVersion = (): string => (createRequire(import.meta.url)('axe-core/packa
 
 // The installed Chrome or Edge first. 'chromium' is Playwright's own build, there only if someone ran `npx playwright@1.65.0 install chromium`.
 const launch = async (wanted: string): Promise<Launched> => {
+  const endpoint = process.env['ACTUA11Y_BROWSER_WS'];
+  if (endpoint) return { browser: await chromium.connect(endpoint), channel: wanted };
   const channels = wanted === 'auto' ? ['chrome', 'msedge', 'chromium'] : [wanted];
   const failures: string[] = [];
   for (const channel of channels) {

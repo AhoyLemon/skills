@@ -16,7 +16,7 @@ import { REPORT_SHAPE, tallyOf, validateReport, type ValidationContext } from '.
 import { rulesInWords } from './_rules.ts';
 import { latestDryRun, newRunId, reportHash, runDir, writeJson, type DryRunRecord, type RunMeta } from './_runs.ts';
 import { onExit } from './_exec.ts';
-import { installKit, makeScratch, probeBrowser, removeDir } from './_scratch.ts';
+import { installKit, makeScratch, probeBrowser, removeDir, startBrowserServer, type BrowserServer } from './_scratch.ts';
 import { serveStatic, type StaticServer } from './_serve.ts';
 import { aftermath, auditSpec, nextLine, printAftermath, runRole, strayLines } from './_session.ts';
 
@@ -82,7 +82,8 @@ export const cmdBrief = (options: Options, backend: Backend): number => {
   const scratch = '<a fresh scratch folder per run>';
   const spec = finderSpec(options, root, null, '', [], backend.offLimits(root));
   spec.scratch = scratch;
-  out(finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl: options.url ?? '<served for the run>', pages: options.pages, scratch, browser: '<your installed Chrome or Edge>', channel: 'chrome', spec }));
+  const brief = finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl: options.url ?? '<served for the run>', pages: options.pages, scratch, browser: '<your installed Chrome or Edge>', channel: 'chrome', spec });
+  out(backend.costsMeasured === false ? brief.replace(`${spec.maxTurns} turns, $${spec.maxBudgetUsd} and ${Math.round(spec.timeoutMs / 60_000)} minutes`, `${Math.round(spec.timeoutMs / 60_000)} minutes; dollar cost is not measured`) : brief);
   return 0;
 };
 
@@ -91,7 +92,7 @@ export const requireDryRun = (repo: { owner: string; name: string }, options: Op
   const dry = latestDryRun(repo);
   if (dryRunIsFresh(dry, { backend: backend.name, model: options.model, effort: options.effort }, Date.now())) return dry;
   failLine(`No clean dry run for ${repo.owner}/${repo.name} with ${options.model} at effort ${options.effort} in the last six hours.`);
-  hintLine('Run `node runner.ts dry-run` first, with the same --model and --effort, and read what the session says it loaded.');
+  hintLine(`Run \`node runner.ts dry-run${backend.selector ? ` --backend ${backend.selector}` : ''}\` first, with the same --model and --effort, and read what the session says it loaded.`);
   return null;
 };
 
@@ -104,11 +105,15 @@ export interface Prepared {
 }
 
 // A fresh scratch folder with the browser kit, and the static server when the site is a folder. The caller always runs cleanup.
-export const prepareRun = async (runId: string, root: string, site: { url: string | null; serve: string | null }): Promise<Prepared> => {
+export const prepareRun = async (runId: string, root: string, site: { url: string | null; serve: string | null }, backend?: Backend): Promise<Prepared & { browserEndpoint?: string }> => {
   const scratch = makeScratch(runId);
   const cleanScratch = onExit(() => removeDir(scratch));
   let server: StaticServer | null = null;
+  let browserServer: BrowserServer | null = null;
+  const cleanBrowser = onExit(() => { void browserServer?.close(); });
   const cleanup = async (): Promise<void> => {
+    cleanBrowser(false);
+    await browserServer?.close();
     await server?.close();
     cleanScratch();
   };
@@ -118,12 +123,13 @@ export const prepareRun = async (runId: string, root: string, site: { url: strin
     if (!kit.ok) throw new Error(`Couldn't install the browser kit: ${kit.detail}`);
     const probe = probeBrowser(scratch);
     if (!probe.ok) throw new Error(`No browser to drive: ${probe.detail}`);
+    if (backend?.browserServer) browserServer = await startBrowserServer(scratch, probe.channel);
     okLine(`browser kit installed in a fresh scratch folder, driving ${probe.channel} ${probe.version}`);
     if (site.serve) {
       server = await serveStatic(join(root, site.serve));
       okLine(`serving ${site.serve} at ${server.url} for this run`);
     }
-    return { scratch, server, baseUrl: server?.url ?? site.url ?? '', browser: { channel: probe.channel, version: probe.version, axeVersion: probe.axeVersion }, cleanup };
+    return { scratch, server, baseUrl: server?.url ?? site.url ?? '', browser: { channel: probe.channel, version: probe.version, axeVersion: probe.axeVersion }, browserEndpoint: browserServer?.endpoint, cleanup };
   } catch (error) {
     await cleanup();
     throw error;
@@ -150,7 +156,7 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
   const runId = newRunId();
   const dir = runDir(repo, runId);
   mkdirSync(dir, { recursive: true });
-  const prepared = await prepareRun(runId, root, { url: options.url, serve: options.serve });
+  const prepared = await prepareRun(runId, root, { url: options.url, serve: options.serve }, backend);
 
   try {
     const { scratch, server, baseUrl, browser } = prepared;
@@ -161,7 +167,10 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
     const before = treeState(root);
     const ignored = ignoredIn(root, ['.']);
     const spec = finderSpec(options, root, scratch, join(dir, 'transcript.jsonl'), ignored, backend.offLimits(root));
+    spec.browserEndpoint = prepared.browserEndpoint;
     spec.brief = finderBrief({ level, scope: options.scope, repoRoot: root, baseUrl, pages, scratch, browser: `${browser.channel} ${browser.version} (headless)`, channel: browser.channel, spec });
+    if (backend.costsMeasured === false) spec.brief = spec.brief.replace(`${spec.maxTurns} turns, $${spec.maxBudgetUsd} and ${Math.round(spec.timeoutMs / 60_000)} minutes`, `${Math.round(spec.timeoutMs / 60_000)} minutes; dollar cost is not measured`);
+    if (spec.browserEndpoint) spec.brief = spec.brief.replace(`chromium.launch({ channel: '${browser.channel}', headless: true })`, 'chromium.connect(process.env.ACTUA11Y_BROWSER_WS)').concat('\nThe browser is already running; the kit connects automatically.\n');
     writeFileSync(join(dir, 'brief.md'), spec.brief);
 
     const meta: RunMeta = {
@@ -193,7 +202,7 @@ export const cmdRunFinder = async (options: Options, backend: Backend): Promise<
     writeJson(join(dir, 'meta.json'), meta);
 
     heading('The finder');
-    out(dim(`A fresh, read-only ${backend.name} session (${options.model}, effort ${options.effort}), capped at ${options.maxTurns} turns, $${options.maxBudgetUsd} and ${options.timeoutMinutes} minutes. This usually takes a while.`));
+    out(dim(`A fresh, read-only ${backend.name} session (${options.model}, effort ${options.effort}), ${backend.costsMeasured === false ? `capped at ${options.timeoutMinutes} minutes; dollar cost is not measured` : `capped at ${options.maxTurns} turns, $${options.maxBudgetUsd} and ${options.timeoutMinutes} minutes`}. This usually takes a while.`));
     const context: ValidationContext = { criteria: criteriaAt(level), repoRoot: root, tracked: trackedFiles(root) };
     const run = await runRole(backend, spec, (raw) => validateReport(raw, context));
     const after = aftermath(run, spec, root, before, options.allowIgnored);

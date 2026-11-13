@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0 (2026-11-12)
+
+- Added a Codex backend with a runner-owned browser, prompt inspection and token reporting. Codex's dollar spend is not measured, so its runs use a wall-clock cap rather than a dollar budget.
+- An interrupted Codex session that never reports token usage now says tokens are unreported instead of displaying zero.
+
 ## 1.0.0 (2026-11-12)
 
 The fix-and-certify loop, after the assess-only slice. Assess-only stays an option at intake.

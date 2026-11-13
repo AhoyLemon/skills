@@ -153,7 +153,7 @@ export const initialLedger = (report: FinderReport, facts: RunFacts, site: { url
     result.fails.forEach((_, index) => items.push(newItem(`A${items.length + 1}`, { kind: 'finder', num: result.num, index })));
     result.checks.forEach((_, index) => checks.push({ id: `P${checks.length + 1}`, source: { kind: 'finder', num: result.num, index } }));
   }
-  const spent = facts.usage.costUsd + (facts.dryRunUsage?.costUsd ?? 0);
+  const spent = (facts.usage.costUsd ?? 0) + (facts.dryRunUsage?.costUsd ?? 0);
   return { schema: LEDGER_SCHEMA, facts, site, personUrl: null, loop: null, stage: 'filed', stopped: null, spentUsd: spent, rounds: [], items, checks, human: [], closed: null, unfiled: [] };
 };
 
@@ -348,7 +348,7 @@ export const passPlan = (ledger: Ledger): PassPlan => {
   return { items, blocking };
 };
 
-export const budgetLeft = (ledger: Ledger): number => (ledger.loop ? ledger.loop.budgetUsd - ledger.spentUsd : 0);
+export const budgetLeft = (ledger: Ledger): number => (ledger.loop ? ledger.facts.usage.costUsd === null ? Infinity : ledger.loop.budgetUsd - ledger.spentUsd : 0);
 
 // ---- Moving it forward. Each returns a new ledger and leaves the old one alone. ----
 
@@ -399,7 +399,7 @@ export interface PassInput {
   effort: string;
   browser: { channel: string; version: string } | null;
   usage: Usage;
-  dryRun: { at: string; costUsd: number } | null;
+  dryRun: { at: string; costUsd: number | null } | null;
   commentUrls: string[];
 }
 
@@ -462,7 +462,7 @@ export const applyPass = (ledger: Ledger, report: CertifierReport, verdict: Pass
     return check.id;
   });
   const countDryRun = input.dryRun !== null && input.dryRun.at !== next.facts.dryRunAt && !next.rounds.some((round) => round.dryRunAt === input.dryRun?.at);
-  next.spentUsd += input.usage.costUsd + (countDryRun ? (input.dryRun?.costUsd ?? 0) : 0);
+  next.spentUsd += (input.usage.costUsd ?? 0) + (countDryRun ? (input.dryRun?.costUsd ?? 0) : 0);
   next.rounds.push({ kind: 'certifier', n: input.pass, stage, sha: input.sha, base: null, at: input.at, runId: input.runId, model: input.model, effort: input.effort, browser: input.browser, usage: input.usage, reported: null, approved: verdict.approved, commentUrls: input.commentUrls, dryRunAt: input.dryRun?.at ?? null, dryRunUsd: countDryRun ? (input.dryRun?.costUsd ?? null) : null });
 
   let ended: Ledger['stopped'] = null;

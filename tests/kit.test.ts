@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { promisify } from 'node:util';
 
 import { serveStatic } from '../skills/actua11y/_lib/_serve.ts';
+import { startBrowserServer } from '../skills/actua11y/_lib/_scratch.ts';
 import { makeSite, tempDir } from './_fixtures.ts';
 
 const run = promisify(execFile);
@@ -44,4 +45,25 @@ test('the browser kit scans a served page with axe and records what it found', a
   const result = JSON.parse(readFileSync(out, 'utf8')) as ScanResult;
   assert.ok(result.browser.channel);
   assert.deepEqual(result.violations.find((rule) => rule.id === 'image-alt')?.nodeCount, 1, 'the fixture\'s moth image has no alt');
+});
+
+test('the kit scans through a runner-owned browser', async (t) => {
+  if (!(await hasBrowser())) {
+    assert.ok(!process.env['CI'], 'CI has Chrome, so a failed probe there is a real failure');
+    t.skip('no Chrome, Edge or Playwright Chromium on this machine');
+    return;
+  }
+  const probe = JSON.parse((await kit('--probe')).stdout) as { channel: string };
+  const browser = await startBrowserServer(join(import.meta.dirname, '..', 'skills', 'actua11y'), probe.channel);
+  const server = await serveStatic(makeSite());
+  const out = join(tempDir('kit-remote'), 'scan.json');
+  try {
+    await run(process.execPath, [scan, '--url', server.url, '--tags', 'wcag2a,wcag21a', '--channel', probe.channel, '--out', out], { timeout: 60_000, env: { ...process.env, ACTUA11Y_BROWSER_WS: browser.endpoint } });
+    const result = JSON.parse(readFileSync(out, 'utf8')) as ScanResult;
+    assert.equal(result.browser.channel, probe.channel);
+    assert.equal(result.violations.find((rule) => rule.id === 'image-alt')?.nodeCount, 1);
+  } finally {
+    await server.close();
+    await browser.close();
+  }
 });

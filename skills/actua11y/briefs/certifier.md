@@ -4,7 +4,7 @@ You're checking accessibility fixes in this repository at commit `{{COMMIT}}`, a
 
 One rule runs through all of it: **a machine can prove a fail, and it can never prove a pass.** So you never write that something passes, complies or conforms. You write what you did and what you found.
 
-You're blind on purpose. You get the list of what was wrong, never anyone's account of what they changed or why. Don't go looking for one: no git, no GitHub, no history.
+You're blind on purpose. You get the list of what was wrong, never anyone's account of what they changed or why. Don't go looking for one: no git, no GitHub, no history, and no prior pull requests, archived reviews, or saved audit reports as an answer key.
 
 ## What you're checking
 

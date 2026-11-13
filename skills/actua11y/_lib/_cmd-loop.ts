@@ -101,7 +101,7 @@ export const cmdLoopStart = (options: Options, client: LoopGh): number => {
   banner(ledger.facts.level);
   if (ledger.loop) throw new Error(`The loop for ${agentUrl} already started, on ${ledger.loop.branch}. Run \`node runner.ts status --issue ${issueNumber(agentUrl)}\``);
   if (porcelain(root).length > 0) throw new Error('The working tree has uncommitted or untracked changes. Commit, stash or remove them first: the loop cuts a branch from the audited commit');
-  if (options.budgetUsd < ledger.spentUsd + MIN_PASS_USD) throw new Error(`A $${options.budgetUsd} budget leaves no room: $${ledger.spentUsd.toFixed(2)} is already spent on the dry run and the finder. Pass a bigger --budget-usd`);
+  if (ledger.facts.usage.costUsd !== null && options.budgetUsd < ledger.spentUsd + MIN_PASS_USD) throw new Error(`A $${options.budgetUsd} budget leaves no room: $${ledger.spentUsd.toFixed(2)} is already spent on the dry run and the finder. Pass a bigger --budget-usd`);
   const branch = options.branch ?? `actua11y-${ledger.facts.level.toLowerCase()}-${issueNumber(agentUrl)}`;
   // A branch still sitting at the audited commit is this command's own, left by a run that stopped partway, so a rerun picks it up. Anything else is someone else's work.
   const reuse = branchExists(root, branch);
@@ -120,7 +120,7 @@ export const cmdLoopStart = (options: Options, client: LoopGh): number => {
     okLine('the finder proved no fails, so the AI rounds are skipped and the human round starts');
   }
   saveLoop(client, state, { ledger: next, passes: state.view.passes });
-  okLine(`budget for everything the runner starts: $${options.budgetUsd.toFixed(2)}, of which $${ledger.spentUsd.toFixed(2)} is already spent`);
+  okLine(ledger.facts.usage.costUsd === null ? `${ledger.facts.backend} reports tokens, not dollar cost, so the dollar budget cannot limit these runs` : `budget for everything the runner starts: $${options.budgetUsd.toFixed(2)}, of which $${ledger.spentUsd.toFixed(2)} is already spent`);
   out(dim('The fixer runs as a subagent in this session, so its cost lands here and is reported as tokens and minutes, never counted against that budget.'));
   printNext(next, state.kept?.ticked ?? new Set(), agentUrl);
   return 0;
@@ -266,7 +266,7 @@ export const cmdStatus = (options: Options, client: LoopGh): number => {
   out(`  Agent fails: ${count('open')} open, ${count('claimed')} claimed, ${count('certified')} certified, ${count('moved')} moved to the person (${agentItems(ledger).length} still with the agents)`);
   out(`  Person: ${ticked.size} of ${plural(ledger.checks.length, 'check', 'checks')} ticked, ${plural(ledger.human.length, 'finding', 'findings')} of their own`);
   out(`  Rounds: ${plural(fixerRounds(ledger), 'fixer round', 'fixer rounds')}, ${plural(ledger.rounds.filter((round) => round.kind === 'certifier').length, 'certifier run', 'certifier runs')}${latestPass(ledger) ? `, the latest ${latestPass(ledger)?.approved ? 'approved' : 'not approved'} at ${latestPass(ledger)?.sha.slice(0, 12)}` : ''}`);
-  if (ledger.loop) out(`  Spent by what the runner starts: $${ledger.spentUsd.toFixed(2)} of $${ledger.loop.budgetUsd.toFixed(2)}`);
+  if (ledger.loop) out(ledger.facts.usage.costUsd === null ? '  Dollar cost is not measured; the dollar budget does not limit these runs.' : `  Spent by what the runner starts: $${ledger.spentUsd.toFixed(2)} of $${ledger.loop.budgetUsd.toFixed(2)}`);
   if (state.kept === null) warnLine("the markers around the person's own notes are gone from their issue, so actua11y won't rewrite it until they're back");
   const latest = latestPass(ledger);
   if (latest?.usage) out(dim(`  Latest certifier run: ${formatUsage(latest.usage)}`));
